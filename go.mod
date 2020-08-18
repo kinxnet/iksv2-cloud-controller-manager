@@ -3,12 +3,20 @@ module github.com/kinxnet/cloud-provider-kinx
 go 1.14
 
 require (
-	github.com/prometheus/client_golang v1.0.0
+	github.com/gophercloud/gophercloud v0.12.0
+	github.com/gophercloud/utils v0.0.0-20200508015959-b0167b94122c
+	github.com/mitchellh/mapstructure v1.1.2
+	github.com/prometheus/client_golang v1.4.1
 	github.com/spf13/cobra v0.0.5
+	github.com/stretchr/testify v1.5.1
+	golang.org/x/sys v0.0.0-20200122134326-e047566fdf82
+	gopkg.in/gcfg.v1 v1.2.3
 	k8s.io/api v0.18.0
 	k8s.io/apimachinery v0.18.0
 	k8s.io/apiserver v0.18.0
+	k8s.io/client-go v0.18.0
 	k8s.io/cloud-provider v0.18.0
+	k8s.io/cloud-provider-openstack v1.18.0
 	k8s.io/component-base v0.18.0
 	k8s.io/klog v1.0.0
 	k8s.io/klog/v2 v2.3.0
