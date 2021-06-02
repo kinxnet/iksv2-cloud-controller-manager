@@ -87,6 +87,7 @@ type NetworkingOpts struct {
 
 // LoadBalancer is used for creating and maintaining load balancers
 type LoadBalancer struct {
+	secret  *gophercloud.ServiceClient
 	network *gophercloud.ServiceClient
 	compute *gophercloud.ServiceClient
 	lb      *gophercloud.ServiceClient
@@ -109,8 +110,9 @@ type LoadBalancerOpts struct {
 	MonitorMaxRetries    uint                `gcfg:"monitor-max-retries"`
 	ManageSecurityGroups bool                `gcfg:"manage-security-groups"`
 	NodeSecurityGroupIDs []string            // Do not specify, get it automatically when enable manage-security-groups. TODO(FengyunPan): move it into cache
-	InternalLB           bool                `gcfg:"internal-lb"`    // default false
-	CascadeDelete        bool                `gcfg:"cascade-delete"` // applicable only if use-octavia is set to True
+	InternalLB           bool                `gcfg:"internal-lb"`               // default false
+	CascadeDelete        bool                `gcfg:"cascade-delete"`            // applicable only if use-octavia is set to True
+	TlsContainerRef      string              `gcfg:"default-tls-container-ref"` // reference to a tls container
 }
 
 // Kinx is an implementation of cloud provider Interface for Kinx.
@@ -320,6 +322,7 @@ func ReadConfig(config io.Reader) (Config, error) {
 	cfg.LoadBalancer.MonitorTimeout = MyDuration{3 * time.Second}
 	cfg.LoadBalancer.MonitorMaxRetries = 1
 	cfg.LoadBalancer.CascadeDelete = true
+	cfg.LoadBalancer.TlsContainerRef = ""
 
 	err := gcfg.FatalOnly(gcfg.ReadInto(&cfg, config))
 	if err != nil {

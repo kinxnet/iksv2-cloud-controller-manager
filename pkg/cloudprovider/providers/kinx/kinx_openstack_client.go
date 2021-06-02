@@ -52,3 +52,13 @@ func (k *Kinx) NewLoadBalancerV2() (*gophercloud.ServiceClient, error) {
 	}
 	return lb, nil
 }
+
+func (k *Kinx) NewKeyManagerV1() (*gophercloud.ServiceClient, error) {
+	secret, err := openstack.NewKeyManagerV1(k.openstackProvider, gophercloud.EndpointOpts{
+		Region: k.region,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to initialize keymanager client for region %s: %v", k.region, err)
+	}
+	return secret, nil
+}
