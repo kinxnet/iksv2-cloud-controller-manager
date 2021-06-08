@@ -3,6 +3,8 @@ package kinx
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -64,7 +66,7 @@ const (
 	// ServiceAnnotationLoadBalancerEnableHealthMonitor defines whether or not to create health monitor for the load balancer
 	// pool, if not specified, use 'create-monitor' config. The health monitor can be created or deleted dynamically.
 	ServiceAnnotationLoadBalancerEnableHealthMonitor = "loadbalancer.openstack.org/enable-health-monitor"
-	ServiceAnnotationTlsContainerRef                 = "loadbalancer.openstack.org/default-tls-container-ref"
+	ServiceAnnotationTlsContainerIds                 = "loadbalancer.openstack.org/tls-container-ids"
 )
 
 // LbaasV2 is a LoadBalancer implementation for Neutron LBaaS v2 API
@@ -383,25 +385,31 @@ func (lbaas *LBaasV2) EnsureLoadBalancer(ctx context.Context, clusterName string
 		klog.V(4).Infof("Ensure an internal loadbalancer service.")
 	}
 
-	tlsContainerRef := getStringFromServiceAnnotation(apiService, ServiceAnnotationTlsContainerRef, lbaas.opts.TlsContainerRef)
-	if tlsContainerRef != "" {
+	var tlsContainerRef string
+	var sniContainerRefs []string
+	tlsContainerString := getStringFromServiceAnnotation(apiService, ServiceAnnotationTlsContainerIds, "")
+	if tlsContainerString != "" {
 		if lbaas.secret == nil {
 			return nil, fmt.Errorf("failed to create a TLS Terminated loadbalancer because openstack keymanager client is not "+
-				"initialized and default-tls-container-ref %q is set", tlsContainerRef)
+				"initialized and default-tls-container-ref %q is set", tlsContainerString)
 		}
 
-		// check if container exists
-		// tls container ref has format: https://{keymanager_host}/v1/containers/{uuid}
-		slice := strings.Split(tlsContainerRef, "/")
-		containerID := slice[len(slice)-1]
+		tlsContainerIds := regexp.MustCompile("[\\s]*,[\\s]*").Split(tlsContainerString, -1)
+		if len(tlsContainerIds) > 0 {
+			for i := 0; i < len(tlsContainerIds); i++ {
+				container, err := containers.Get(lbaas.secret, tlsContainerIds[i]).Extract()
+				if err != nil {
+					return nil, fmt.Errorf("failed to get tls container %q: %v", tlsContainerIds[i], err)
+				}
 
-		klog.Infof("Container ID - %S", containerID)
+				klog.Infof("TLS container %q found", container.ContainerRef)
 
-		container, err := containers.Get(lbaas.secret, containerID).Extract()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get tls container %q: %v", tlsContainerRef, err)
+				tlsContainerIds[i] = container.ContainerRef
+			}
+
+			tlsContainerRef = tlsContainerIds[0]
+			sniContainerRefs = tlsContainerIds[1:]
 		}
-		klog.Infof("Default TLS container %q found", container.ContainerRef)
 	}
 
 	// TODO Support for ManageSecurityGroups
@@ -475,10 +483,11 @@ func (lbaas *LBaasV2) EnsureLoadBalancer(ctx context.Context, clusterName string
 				ConnLimit:              &connLimit,
 				LoadbalancerID:         loadbalancer.ID,
 				DefaultTlsContainerRef: tlsContainerRef,
+				SniContainerRefs:       sniContainerRefs,
 			}
 
 			if tlsContainerRef != "" && listenerCreateOpt.Protocol != listeners.ProtocolTerminatedHTTPS {
-				klog.Infof("Forcing to use %q protocol for listener because %q annotation is set", listeners.ProtocolTerminatedHTTPS, ServiceAnnotationTlsContainerRef)
+				klog.Infof("Forcing to use %q protocol for listener because %q annotation is set", listeners.ProtocolTerminatedHTTPS, ServiceAnnotationTlsContainerIds)
 				listenerCreateOpt.Protocol = listeners.ProtocolTerminatedHTTPS
 			}
 
@@ -497,6 +506,12 @@ func (lbaas *LBaasV2) EnsureLoadBalancer(ctx context.Context, clusterName string
 			if tlsContainerRef != listener.DefaultTlsContainerRef {
 				klog.Infof("change tls-container-ref (%s) -> (%s)", listener.DefaultTlsContainerRef, tlsContainerRef)
 				updateOpts.DefaultTlsContainerRef = &tlsContainerRef
+				listenerChanged = true
+			}
+
+			if !reflect.DeepEqual(sniContainerRefs, listener.SniContainerRefs) {
+				klog.Infof("change sni-container-ref (%s) -> (%s)", listener.SniContainerRefs, sniContainerRefs)
+				updateOpts.SniContainerRefs = &sniContainerRefs
 				listenerChanged = true
 			}
 
@@ -521,8 +536,8 @@ func (lbaas *LBaasV2) EnsureLoadBalancer(ctx context.Context, clusterName string
 			// Use the protocol of the listerner
 			poolProto := v2pools.Protocol(listener.Protocol)
 
-			if tlsContainerRef != "" {
-				klog.V(4).Infof("Forcing to use %q protocol for pool because annotations %q is set", v2pools.ProtocolHTTP, ServiceAnnotationTlsContainerRef)
+			if tlsContainerString != "" {
+				klog.V(4).Infof("Forcing to use %q protocol for pool because annotations %q is set", v2pools.ProtocolHTTP, ServiceAnnotationTlsContainerIds)
 				poolProto = v2pools.ProtocolHTTP
 			}
 

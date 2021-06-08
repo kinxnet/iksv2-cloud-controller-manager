@@ -110,9 +110,8 @@ type LoadBalancerOpts struct {
 	MonitorMaxRetries    uint                `gcfg:"monitor-max-retries"`
 	ManageSecurityGroups bool                `gcfg:"manage-security-groups"`
 	NodeSecurityGroupIDs []string            // Do not specify, get it automatically when enable manage-security-groups. TODO(FengyunPan): move it into cache
-	InternalLB           bool                `gcfg:"internal-lb"`               // default false
-	CascadeDelete        bool                `gcfg:"cascade-delete"`            // applicable only if use-octavia is set to True
-	TlsContainerRef      string              `gcfg:"default-tls-container-ref"` // reference to a tls container
+	InternalLB           bool                `gcfg:"internal-lb"`    // default false
+	CascadeDelete        bool                `gcfg:"cascade-delete"` // applicable only if use-octavia is set to True
 }
 
 // Kinx is an implementation of cloud provider Interface for Kinx.
@@ -321,8 +320,7 @@ func ReadConfig(config io.Reader) (Config, error) {
 	cfg.LoadBalancer.MonitorDelay = MyDuration{5 * time.Second}
 	cfg.LoadBalancer.MonitorTimeout = MyDuration{3 * time.Second}
 	cfg.LoadBalancer.MonitorMaxRetries = 1
-	cfg.LoadBalancer.CascadeDelete = true
-	cfg.LoadBalancer.TlsContainerRef = ""
+	cfg.LoadBalancer.CascadeDelete = false
 
 	err := gcfg.FatalOnly(gcfg.ReadInto(&cfg, config))
 	if err != nil {
