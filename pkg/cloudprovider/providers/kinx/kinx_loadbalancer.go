@@ -3,6 +3,7 @@ package kinx
 import (
 	"context"
 	"fmt"
+	"math"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -53,20 +54,21 @@ const (
 	activeStatus = "ACTIVE"
 	errorStatus  = "ERROR"
 
-	// ServiceAnnotationLoadBalancerInternal defines whether or not to create an internal loadbalancer. Default: false.
-	ServiceAnnotationLoadBalancerInternal          = "service.beta.kubernetes.io/openstack-internal-load-balancer"
-	ServiceAnnotationLoadBalancerConnLimit         = "loadbalancer.openstack.org/connection-limit"
-	ServiceAnnotationLoadBalancerFloatingNetworkID = "loadbalancer.openstack.org/floating-network-id"
-	ServiceAnnotationLoadBalancerFloatingSubnet    = "loadbalancer.openstack.org/floating-subnet"
-	ServiceAnnotationLoadBalancerFloatingSubnetID  = "loadbalancer.openstack.org/floating-subnet-id"
-	ServiceAnnotationLoadBalancerClass             = "loadbalancer.openstack.org/class"
-	ServiceAnnotationLoadBalancerPortID            = "loadbalancer.openstack.org/port-id"
-	ServiceAnnotationLoadBalancerSubnetID          = "loadbalancer.openstack.org/subnet-id"
-	ServiceAnnotationLoadBalancerNetworkID         = "loadbalancer.openstack.org/network-id"
-	// ServiceAnnotationLoadBalancerEnableHealthMonitor defines whether or not to create health monitor for the load balancer
-	// pool, if not specified, use 'create-monitor' config. The health monitor can be created or deleted dynamically.
-	ServiceAnnotationLoadBalancerEnableHealthMonitor = "loadbalancer.openstack.org/enable-health-monitor"
-	ServiceAnnotationTlsContainerIds                 = "loadbalancer.openstack.org/tls-container-ids"
+	backendProtocolTerminatedHttps = "terminated_https"
+	backendProtocolHttp            = "http"
+	backendProtocolTcp             = "tcp"
+
+	// annotation
+	ServiceAnnotationBackendProtocol = "service.beta.kubernetes.io/kinx-load-balancer-backend-protocol"
+	ServiceAnnotationTlsContainerIds = "service.beta.kubernetes.io/kinx-load-balanver-tls-container-ids"
+	ServiceAnnotationRedirectHttp    = "service.beta.kubernetes.io/kinx-load-balancer-redirect-http"
+	ServiceAnnotationProxyProtocol   = "service.beta.kubernetes.io/kinx-load-balancer-proxy-protocol"
+	ServiceAnnotationLowTlsv         = "service.beta.kubernetes.io/kinx-load-balancer-low-tlsv"
+
+	// health monitor annotation
+	ServiceAnnotationHealthCheckInterval = "service.beta.kubernetes.io/kinx-load-balancer-healthcheck-interval"
+	ServiceAnnotationHealthCheckRetry    = "service.beta.kubernetes.io/kinx-load-balancer-healthcheck-retry"
+	ServiceAnnotationHealthCheckTimeout  = "service.beta.kubernetes.io/kinx-load-balancer-healthcheck-timeout"
 )
 
 // LbaasV2 is a LoadBalancer implementation for Neutron LBaaS v2 API
@@ -285,108 +287,38 @@ func waitLoadbalancerActiveProvisioningStatus(client *gophercloud.ServiceClient,
 
 // EnsureLoadBalancer creates a new load balancer or updates the existing one.
 func (lbaas *LBaasV2) EnsureLoadBalancer(ctx context.Context, clusterName string, apiService *corev1.Service, nodes []*corev1.Node) (*corev1.LoadBalancerStatus, error) {
-	klog.Info("Hello LoadBalancer!")
 	serviceName := fmt.Sprintf("%s/%s", apiService.Namespace, apiService.Name)
 
 	klog.V(4).Infof("EnsureLoadBalancer(%s, %s)", clusterName, serviceName)
+
+	backendProtocol := getStringFromServiceAnnotation(apiService, ServiceAnnotationBackendProtocol, "")
+	if !isBackendProtocol(backendProtocol) {
+		return nil, fmt.Errorf("\"%s\" is an unsupported protocol", backendProtocol)
+	}
 
 	if len(nodes) == 0 {
 		return nil, fmt.Errorf("there are no available nodes for LoadBalancer service %s", serviceName)
 	}
 
-	lbaas.opts.NetworkID = getStringFromServiceAnnotation(apiService, ServiceAnnotationLoadBalancerNetworkID, lbaas.opts.NetworkID)
-	lbaas.opts.SubnetID = getStringFromServiceAnnotation(apiService, ServiceAnnotationLoadBalancerSubnetID, lbaas.opts.SubnetID)
-	if len(lbaas.opts.SubnetID) == 0 && len(lbaas.opts.NetworkID) == 0 {
-		// Get SubnetID automatically.
-		// The LB needs to be configured with instance addresses on the same subnet, so get SubnetID by one node.
-		subnetID, err := getSubnetIDForLB(lbaas.compute, *nodes[0])
-		if err != nil {
-			klog.Warningf("Failed to find subnet-id for loadbalancer service %s/%s: %v", apiService.Namespace, apiService.Name, err)
-			return nil, fmt.Errorf("no subnet-id for service %s/%s : subnet-id not set in cloud provider config, "+
-				"and failed to find subnet-id from OpenStack: %v", apiService.Namespace, apiService.Name, err)
-		}
-		lbaas.opts.SubnetID = subnetID
+	// Get SubnetID automatically.
+	// The LB needs to be configured with instance addresses on the same subnet, so get SubnetID by one node.
+	subnetID, err := getSubnetIDForLB(lbaas.compute, *nodes[0])
+	if err != nil {
+		klog.Warningf("Failed to find subnet-id for loadbalancer service %s/%s: %v", apiService.Namespace, apiService.Name, err)
+		return nil, fmt.Errorf("no subnet-id for service %s/%s : subnet-id not set in cloud provider config, "+
+			"and failed to find subnet-id from OpenStack: %v", apiService.Namespace, apiService.Name, err)
 	}
+	lbaas.opts.SubnetID = subnetID
 
 	ports := apiService.Spec.Ports
 	if len(ports) == 0 {
 		return nil, fmt.Errorf("no ports provided to openstack load balancer")
 	}
 
-	internalAnnotation, err := getBoolFromServiceAnnotation(apiService, ServiceAnnotationLoadBalancerInternal, lbaas.opts.InternalLB)
-	if err != nil {
-		return nil, err
-	}
+	klog.V(4).Infof("Ensure an external loadbalancer service")
 
-	var lbClass *LBClass
-	var floatingNetworkID string
-	var floatingSubnetID string
-
-	if !internalAnnotation {
-		klog.V(4).Infof("Ensure an external loadbalancer service")
-		class := getStringFromServiceAnnotation(apiService, ServiceAnnotationLoadBalancerClass, "")
-		if class != "" {
-			lbClass = lbaas.opts.LBClasses[class]
-			if lbClass == nil {
-				return nil, fmt.Errorf("invalid loadbalancer class %q", class)
-			}
-
-			klog.V(4).Infof("found loadbalancer class %q with %+v", class, lbClass)
-
-			// read floating network id and floating subnet id from loadbalancer class
-			if lbClass.FloatingNetworkID != "" {
-				floatingNetworkID = lbClass.FloatingNetworkID
-			}
-
-			if lbClass.FloatingSubnetID != "" {
-				floatingSubnetID = lbClass.FloatingSubnetID
-			}
-		}
-
-		if floatingNetworkID == "" {
-			floatingNetworkID = getStringFromServiceAnnotation(apiService, ServiceAnnotationLoadBalancerFloatingNetworkID, lbaas.opts.FloatingNetworkID)
-			if floatingNetworkID == "" {
-				var err error
-				floatingNetworkID, err = getFloatingNetworkIDForLB(lbaas.network)
-				if err != nil {
-					klog.Warningf("Failed to find floating-network-id for Service %s: %v", serviceName, err)
-				}
-			}
-		}
-
-		if floatingSubnetID == "" {
-			floatingSubnetName := getStringFromServiceAnnotation(apiService, ServiceAnnotationLoadBalancerFloatingSubnet, "")
-			if floatingSubnetName != "" {
-				lbSubnet, err := lbaas.getSubnet(floatingSubnetName)
-				if err != nil || lbSubnet == nil {
-					klog.Warningf("Failed to find floating-subnet-id for Service %s: %v", serviceName, err)
-				} else {
-					floatingSubnetID = lbSubnet.ID
-				}
-			}
-
-			if floatingSubnetID == "" {
-				floatingSubnetID = getStringFromServiceAnnotation(apiService, ServiceAnnotationLoadBalancerFloatingSubnetID, lbaas.opts.FloatingSubnetID)
-			}
-		}
-
-		// check subnets belongs to network
-		if floatingNetworkID != "" && floatingSubnetID != "" {
-			subnet, err := subnets.Get(lbaas.network, floatingSubnetID).Extract()
-			if err != nil {
-				return nil, fmt.Errorf("Failed to find subnet %q: %v", floatingSubnetID, err)
-			}
-
-			if subnet.NetworkID != floatingNetworkID {
-				return nil, fmt.Errorf("FloatingSubnet %q doesn't belong to FloatingNetwork %q", floatingSubnetID, floatingSubnetID)
-			}
-		}
-	} else {
-		klog.V(4).Infof("Ensure an internal loadbalancer service.")
-	}
-
-	var tlsContainerRef string
-	var sniContainerRefs []string
+	tlsContainerRef := ""
+	sniContainerRefs := []string{}
 	tlsContainerString := getStringFromServiceAnnotation(apiService, ServiceAnnotationTlsContainerIds, "")
 	if tlsContainerString != "" {
 		if lbaas.secret == nil {
@@ -436,11 +368,7 @@ func (lbaas *LBaasV2) EnsureLoadBalancer(ctx context.Context, clusterName string
 
 		klog.V(2).Infof("Creating loadbalancer %s", name)
 
-		portID := ""
-		if lbClass == nil {
-			portID = getStringFromServiceAnnotation(apiService, ServiceAnnotationLoadBalancerPortID, "")
-		}
-		loadbalancer, err = lbaas.createLoadBalancer(apiService, name, clusterName, lbClass, internalAnnotation, portID)
+		loadbalancer, err = lbaas.createLoadBalancer(apiService, name, clusterName, nil /* lbClass */, false /* internal */, "" /* portID */)
 		if err != nil {
 			return nil, fmt.Errorf("error creating loadbalancer %s: %v", name, err)
 		}
@@ -465,19 +393,18 @@ func (lbaas *LBaasV2) EnsureLoadBalancer(ctx context.Context, clusterName string
 
 	for portIndex, port := range ports {
 		listener := getListenerForPort(oldListeners, port)
-		climit := getStringFromServiceAnnotation(apiService, ServiceAnnotationLoadBalancerConnLimit, "-1")
 		connLimit := -1
-		tmp, err := strconv.Atoi(climit)
-		if err != nil {
-			klog.V(4).Infof("Could not parse int value from \"%s\" error \"%v\" failing back to default", climit, err)
-		} else {
-			connLimit = tmp
-		}
 
+		// get listener annotation
+		redirectHttp, _ := getBoolFromServiceAnnotation(apiService, ServiceAnnotationRedirectHttp, false)
+		lowTlsv, _ := getBoolFromServiceAnnotation(apiService, ServiceAnnotationLowTlsv, false)
+
+		listenerProtocol := getListenerProtocol(backendProtocol)
+		listenerDescription := getListenerDescription(listenerProtocol, redirectHttp, lowTlsv)
 		if listener == nil {
-			listenerProtocol := listeners.Protocol(port.Protocol)
 			listenerCreateOpt := listeners.CreateOpts{
 				Name:                   cutString(fmt.Sprintf("listener_%d_%s", portIndex, name)),
+				Description:            listenerDescription,
 				Protocol:               listenerProtocol,
 				ProtocolPort:           int(port.Port),
 				ConnLimit:              &connLimit,
@@ -515,6 +442,11 @@ func (lbaas *LBaasV2) EnsureLoadBalancer(ctx context.Context, clusterName string
 				listenerChanged = true
 			}
 
+			if listener.Description != listenerDescription {
+				updateOpts.Description = &listenerDescription
+				listenerChanged = true
+			}
+
 			if listenerChanged {
 				if err := openstackutil.UpdateListener(lbaas.lb, loadbalancer.ID, listener.ID, updateOpts); err != nil {
 					return nil, fmt.Errorf("failed to update listener %s of loadbalancer %s: %v", listener.ID, loadbalancer.ID, err)
@@ -532,15 +464,9 @@ func (lbaas *LBaasV2) EnsureLoadBalancer(ctx context.Context, clusterName string
 		if err != nil && err != ErrNotFound {
 			return nil, fmt.Errorf("error getting pool for listener %s: %v", listener.ID, err)
 		}
+
 		if pool == nil {
-			// Use the protocol of the listerner
-			poolProto := v2pools.Protocol(listener.Protocol)
-
-			if tlsContainerString != "" {
-				klog.V(4).Infof("Forcing to use %q protocol for pool because annotations %q is set", v2pools.ProtocolHTTP, ServiceAnnotationTlsContainerIds)
-				poolProto = v2pools.ProtocolHTTP
-			}
-
+			poolProto := getPoolProtocol(backendProtocol)
 			lbmethod := v2pools.LBMethod(lbaas.opts.LBMethod)
 			createOpt := v2pools.CreateOpts{
 				Name:        cutString(fmt.Sprintf("pool_%d_%s", portIndex, name)),
@@ -561,9 +487,21 @@ func (lbaas *LBaasV2) EnsureLoadBalancer(ctx context.Context, clusterName string
 				return nil, fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating pool, current provisioning status %s", provisioningStatus)
 			}
 
+			klog.V(4).Infof("Pool created for listener %s: %s", listener.ID, pool.ID)
+
 		}
 
-		klog.V(4).Infof("Pool created for listener %s: %s", listener.ID, pool.ID)
+		proxyProtocol, _ := getBoolFromServiceAnnotation(apiService, ServiceAnnotationProxyProtocol, false)
+		poolDescription := getPoolDescription(v2pools.Protocol(pool.Protocol), pool.ID, proxyProtocol)
+
+		if pool.Description != poolDescription {
+			pool, err = v2pools.Update(lbaas.lb, pool.ID, v2pools.UpdateOpts{Description: &poolDescription}).Extract()
+			if err != nil {
+				return nil, fmt.Errorf("failed to update pool %s of listener %s: %v", pool.ID, listener.ID, err)
+			}
+
+			klog.V(4).Infof("Pool updated for Listener %s: %s", listener.ID, pool.ID)
+		}
 
 		members, err := getMembersByPoolID(lbaas.lb, pool.ID)
 		if err != nil && !cpoerrors.IsNotFound(err) {
@@ -619,23 +557,35 @@ func (lbaas *LBaasV2) EnsureLoadBalancer(ctx context.Context, clusterName string
 		}
 
 		monitorID := pool.MonitorID
-		enableHealthMonitor, err := getBoolFromServiceAnnotation(apiService, ServiceAnnotationLoadBalancerEnableHealthMonitor, lbaas.opts.CreateMonitor)
-		if err != nil {
-			return nil, err
-		}
-		if monitorID == "" && enableHealthMonitor {
+		if monitorID == "" && lbaas.opts.CreateMonitor {
 			klog.V(4).Infof("Creating monitor for pool %s", pool.ID)
 			monitorProtocol := string(port.Protocol)
 			if port.Protocol == corev1.ProtocolUDP {
 				monitorProtocol = "UDP-CONNECT"
 			}
+
+			monitorInterval, err := getIntFromServiceAnnotation(apiService, ServiceAnnotationHealthCheckInterval, lbaas.opts.MonitorDelay)
+			if err != nil {
+				return nil, err
+			}
+
+			monitorTimeout, err := getIntFromServiceAnnotation(apiService, ServiceAnnotationHealthCheckInterval, lbaas.opts.MonitorTimeout)
+			if err != nil {
+				return nil, err
+			}
+
+			monitorRetry, err := getIntFromServiceAnnotation(apiService, ServiceAnnotationHealthCheckInterval, int(lbaas.opts.MonitorMaxRetries))
+			if err != nil {
+				return nil, err
+			}
+
 			monitor, err := v2monitors.Create(lbaas.lb, v2monitors.CreateOpts{
 				Name:       cutString(fmt.Sprintf("monitor_%d_%s)", portIndex, name)),
 				PoolID:     pool.ID,
 				Type:       monitorProtocol,
-				Delay:      int(lbaas.opts.MonitorDelay.Duration.Seconds()),
-				Timeout:    int(lbaas.opts.MonitorTimeout.Duration.Seconds()),
-				MaxRetries: int(lbaas.opts.MonitorMaxRetries),
+				Delay:      monitorInterval,
+				Timeout:    monitorTimeout,
+				MaxRetries: int(monitorRetry),
 			}).Extract()
 			if err != nil {
 				return nil, fmt.Errorf("error creating LB pool healthmonitor: %v", err)
@@ -645,12 +595,6 @@ func (lbaas *LBaasV2) EnsureLoadBalancer(ctx context.Context, clusterName string
 				return nil, fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating monitor, current provisioning status %s", provisioningStatus)
 			}
 			monitorID = monitor.ID
-		} else if monitorID != "" && !enableHealthMonitor {
-			klog.Infof("Deleting health monitor %s for pool %s", monitorID, pool.ID)
-			err := v2monitors.Delete(lbaas.lb, monitorID).ExtractErr()
-			if err != nil {
-				return nil, fmt.Errorf("failed to delete health monitor %s for pool %s, error: %v", monitorID, pool.ID, err)
-			}
 		}
 	}
 
@@ -727,18 +671,15 @@ func (lbaas *LBaasV2) UpdateLoadBalancer(ctx context.Context, clusterName string
 	serviceName := fmt.Sprintf("%s/%s", service.Namespace, service.Name)
 	klog.V(4).Infof("UpdateLoadBalancer(%v, %s, %v)", clusterName, serviceName, nodes)
 
-	lbaas.opts.SubnetID = getStringFromServiceAnnotation(service, ServiceAnnotationLoadBalancerSubnetID, lbaas.opts.SubnetID)
-	if len(lbaas.opts.SubnetID) == 0 && len(nodes) > 0 {
-		// Get SubnetID automatically.
-		// The LB needs to be configured with instance addresses on the same subnet, so get SubnetID by one node.
-		subnetID, err := getSubnetIDForLB(lbaas.compute, *nodes[0])
-		if err != nil {
-			klog.Warningf("Failed to find subnet-id for loadbalancer service %s/%s: %v", service.Namespace, service.Name, err)
-			return fmt.Errorf("no subnet-id for service %s/%s : subnet-id not set in cloud provider config, "+
-				"and failed to find subnet-id from OpenStack: %v", service.Namespace, service.Name, err)
-		}
-		lbaas.opts.SubnetID = subnetID
+	// Get SubnetID automatically.
+	// The LB needs to be configured with instance addresses on the same subnet, so get SubnetID by one node.
+	subnetID, err := getSubnetIDForLB(lbaas.compute, *nodes[0])
+	if err != nil {
+		klog.Warningf("Failed to find subnet-id for loadbalancer service %s/%s: %v", service.Namespace, service.Name, err)
+		return fmt.Errorf("no subnet-id for service %s/%s : subnet-id not set in cloud provider config, "+
+			"and failed to find subnet-id from OpenStack: %v", service.Namespace, service.Name, err)
 	}
+	lbaas.opts.SubnetID = subnetID
 
 	ports := service.Spec.Ports
 	if len(ports) == 0 {
@@ -757,8 +698,7 @@ func (lbaas *LBaasV2) UpdateLoadBalancer(ctx context.Context, clusterName string
 
 	// Get all listeners for this loadbalancer, by "port key".
 	type portKey struct {
-		Protocol listeners.Protocol
-		Port     int
+		Port int
 	}
 	var listenerIDs []string
 	lbListeners := make(map[portKey]listeners.Listener)
@@ -767,7 +707,7 @@ func (lbaas *LBaasV2) UpdateLoadBalancer(ctx context.Context, clusterName string
 		return fmt.Errorf("error getting listeners for LB %s: %v", loadbalancer.ID, err)
 	}
 	for _, l := range allListeners {
-		key := portKey{Protocol: listeners.Protocol(l.Protocol), Port: l.ProtocolPort}
+		key := portKey{Port: l.ProtocolPort}
 		lbListeners[key] = l
 		listenerIDs = append(listenerIDs, l.ID)
 	}
@@ -796,11 +736,10 @@ func (lbaas *LBaasV2) UpdateLoadBalancer(ctx context.Context, clusterName string
 	for portIndex, port := range ports {
 		// Get listener associated with this port
 		listener, ok := lbListeners[portKey{
-			Protocol: toListenersProtocol(port.Protocol),
-			Port:     int(port.Port),
+			Port: int(port.Port),
 		}]
 		if !ok {
-			return fmt.Errorf("loadbalancer %s does not contain required listener for port %d and protocol %s", loadbalancer.ID, port.Port, port.Protocol)
+			return fmt.Errorf("loadbalancer %s does not contain required listener for port %d", loadbalancer.ID, port.Port)
 		}
 
 		// Get pool associated with this listener
@@ -882,6 +821,72 @@ func waitLoadbalancerDeleted(client *gophercloud.ServiceClient, loadbalancerID s
 	}
 
 	return err
+}
+
+func isBackendProtocol(protocol string) bool {
+	switch strings.ToLower(protocol) {
+	case backendProtocolTerminatedHttps, backendProtocolHttp, backendProtocolTcp:
+		return true
+	}
+
+	return false
+}
+
+func getListenerProtocol(backendProtocol string) listeners.Protocol {
+	switch backendProtocol {
+	case backendProtocolTerminatedHttps:
+		return listeners.ProtocolTerminatedHTTPS
+	case backendProtocolHttp:
+		return listeners.ProtocolHTTP
+	case backendProtocolTcp:
+		return listeners.ProtocolTCP
+	}
+	return ""
+}
+
+func getPoolProtocol(backendProtocol string) v2pools.Protocol {
+	switch backendProtocol {
+	case backendProtocolTerminatedHttps:
+		return v2pools.ProtocolHTTP
+	case backendProtocolHttp:
+		return v2pools.ProtocolHTTP
+	case backendProtocolTcp:
+		return v2pools.ProtocolTCP
+	}
+	return ""
+}
+
+func getListenerDescription(protocol listeners.Protocol, redirectHttp bool, lowTlsv bool) string {
+	switch protocol {
+	case listeners.ProtocolHTTP:
+		if redirectHttp {
+			return "forward:set-header x-forwarded-proto http,redirect_http:True"
+		}
+
+		return "forward:set-header x-forwarded-proto http"
+
+	case listeners.ProtocolHTTPS:
+		if lowTlsv {
+			return "forward:set-header x-forwarded-proto https,tlsv:\"no-tlsv10 no-tlsv11\""
+		}
+
+		return "forward:set-header x-forwarded-proto https"
+
+	default:
+		return ""
+	}
+}
+
+func getPoolDescription(protocol v2pools.Protocol, poolId string, proxyProtocol bool) string {
+	switch protocol {
+	case v2pools.ProtocolTCP:
+		if proxyProtocol {
+			return fmt.Sprintf("%s,proxy:true", poolId)
+		}
+		return ""
+	default:
+		return ""
+	}
 }
 
 // EnsureLoadBalancerDeleted deletes the specified load balancer
@@ -1024,6 +1029,29 @@ func getStringFromServiceAnnotation(service *corev1.Service, annotationKey strin
 	//if there is no annotation, set "settings" var to the value from cloud config
 	klog.V(4).Infof("Could not find a Service Annotation; falling back on cloud-config setting: %v = %v", annotationKey, defaultSetting)
 	return defaultSetting
+}
+
+//getIntFromServiceAnnotation searches a given v1.Service for a specific annotationKey and either returns the annotation's value or a specified defaultSetting
+func getIntFromServiceAnnotation(service *corev1.Service, annotationKey string, defaultSetting int) (int, error) {
+	klog.V(4).Infof("getIntFromServiceAnnotation(%v, %v, %v)", service, annotationKey, defaultSetting)
+	if annotationValue, ok := service.Annotations[annotationKey]; ok {
+		//if there is an annotation for this setting, set the "setting" var to it
+		// annotationValue can be empty, it is working as designed
+		// it makes possible for instance provisioning loadbalancer without floatingip
+		klog.V(4).Infof("Found a Service Annotation: %v = %v", annotationKey, annotationValue)
+
+		tmp, err := strconv.Atoi(annotationValue)
+		if err != nil {
+			klog.V(4).Infof("Could not parse int value from \"%s\" error \"%v\" failing back to default", annotationValue, err)
+			return math.MinInt, fmt.Errorf("Could not parse int value from \"%s\" error \"%v\" failing back to default", annotationValue, err)
+		}
+
+		return tmp, nil
+	}
+
+	//if there is no annotation, set "settings" var to the value from cloud config
+	klog.V(4).Infof("Could not find a Service Annotation; falling back on cloud-config setting: %v = %v", annotationKey, defaultSetting)
+	return defaultSetting, nil
 }
 
 //getBoolFromServiceAnnotation searches a given v1.Service for a specific annotationKey and either returns the annotation's value or a specified defaultSetting

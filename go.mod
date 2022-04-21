@@ -9,7 +9,7 @@ require (
 	github.com/prometheus/client_golang v1.4.1
 	github.com/spf13/cobra v0.0.5
 	github.com/stretchr/testify v1.5.1
-	golang.org/x/sys v0.0.0-20200122134326-e047566fdf82
+	golang.org/x/sys v0.0.0-20220330033206-e17cdc41300f
 	gopkg.in/gcfg.v1 v1.2.3
 	k8s.io/api v0.18.0
 	k8s.io/apimachinery v0.18.0

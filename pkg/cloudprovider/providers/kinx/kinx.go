@@ -105,8 +105,8 @@ type LoadBalancerOpts struct {
 	LBMethod             string              `gcfg:"lb-method"` // default to ROUND_ROBIN.
 	LBProvider           string              `gcfg:"lb-provider"`
 	CreateMonitor        bool                `gcfg:"create-monitor"`
-	MonitorDelay         MyDuration          `gcfg:"monitor-delay"`
-	MonitorTimeout       MyDuration          `gcfg:"monitor-timeout"`
+	MonitorDelay         int                 `gcfg:"monitor-delay"`
+	MonitorTimeout       int                 `gcfg:"monitor-timeout"`
 	MonitorMaxRetries    uint                `gcfg:"monitor-max-retries"`
 	ManageSecurityGroups bool                `gcfg:"manage-security-groups"`
 	NodeSecurityGroupIDs []string            // Do not specify, get it automatically when enable manage-security-groups. TODO(FengyunPan): move it into cache
@@ -315,11 +315,11 @@ func ReadConfig(config io.Reader) (Config, error) {
 	cfg.LoadBalancer.InternalLB = false
 	cfg.LoadBalancer.LBProvider = "kinx"
 	cfg.LoadBalancer.LBMethod = "ROUND_ROBIN"
-	cfg.LoadBalancer.CreateMonitor = false
 	cfg.LoadBalancer.ManageSecurityGroups = false
-	cfg.LoadBalancer.MonitorDelay = MyDuration{5 * time.Second}
-	cfg.LoadBalancer.MonitorTimeout = MyDuration{3 * time.Second}
-	cfg.LoadBalancer.MonitorMaxRetries = 1
+	cfg.LoadBalancer.CreateMonitor = true
+	cfg.LoadBalancer.MonitorDelay = 5
+	cfg.LoadBalancer.MonitorTimeout = 5
+	cfg.LoadBalancer.MonitorMaxRetries = 3
 	cfg.LoadBalancer.CascadeDelete = false
 
 	err := gcfg.FatalOnly(gcfg.ReadInto(&cfg, config))

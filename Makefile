@@ -15,10 +15,9 @@ SOURCES := $(shell find $(DEST) -name '*.go' 2>/dev/null)
 TEMP_DIR	:=$(shell mktemp -d)
 
 GOOS		?= $(shell go env GOOS)
-VERSION		?= $(shell git describe --exact-match 2> /dev/null || \
-			   git describe --match=$(git rev-parse --short=8 HEAD) --always --dirty --abbrev=8)
+VERSION		?= "v1.0.0"
 LDFLAGS		:= "-w -s -X 'github.com/kinxnet/cloud-provider-kinx/pkg/version.Version=${VERSION}'"
-REGISTRY	?= docker.pkg.github.com/kinxnet/cloud-provider-kinx
+REGISTRY	?= ghcr.io/kinxnet/cloud-provider-kinx
 IMAGE_NAMES	?= kinx-cloud-controller-manager
 
 work: $(GOBIN)
