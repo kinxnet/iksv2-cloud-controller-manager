@@ -60,7 +60,7 @@ const (
 
 	// annotation
 	ServiceAnnotationBackendProtocol = "service.beta.kubernetes.io/kinx-load-balancer-backend-protocol"
-	ServiceAnnotationTlsContainerIds = "service.beta.kubernetes.io/kinx-load-balanver-tls-container-ids"
+	ServiceAnnotationTlsContainerIds = "service.beta.kubernetes.io/kinx-load-balancer-tls-container-ids"
 	ServiceAnnotationRedirectHttp    = "service.beta.kubernetes.io/kinx-load-balancer-redirect-http"
 	ServiceAnnotationProxyProtocol   = "service.beta.kubernetes.io/kinx-load-balancer-proxy-protocol"
 	ServiceAnnotationLowTlsv         = "service.beta.kubernetes.io/kinx-load-balancer-low-tlsv"
