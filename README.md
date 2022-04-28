@@ -5,7 +5,7 @@
   - "service.beta.kubernetes.io/kinx-load-balancer-backend-protocol"
     - (Reqired) terminated_https, http, tcp
   
-  - "service.beta.kubernetes.io/kinx-load-balanver-tls-container-ids"
+  - "service.beta.kubernetes.io/kinx-load-balancer-tls-container-ids"
     - kinx-load-balancer-backend-protocol : terminated_https
     - barbican ssl 인증서 id
     - ,(comma)로 구분하여 복수개 설정 가능
