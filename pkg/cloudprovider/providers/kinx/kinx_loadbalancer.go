@@ -148,7 +148,7 @@ func (lbaas *LBaasV2) GetLoadBalancer(ctx context.Context, clusterName string, s
 
 // GetLoadBalancerName returns the constructed load balancer name.
 func (lbaas *LBaasV2) GetLoadBalancerName(ctx context.Context, clusterName string, service *corev1.Service) string {
-	name := fmt.Sprintf("kube_service_%s_%s_%s", clusterName, service.Namespace, service.Name)
+	name := fmt.Sprintf("kube-service-%s-%s-%s", clusterName, service.Namespace, service.Name)
 	return cutString(name)
 }
 
@@ -403,7 +403,7 @@ func (lbaas *LBaasV2) EnsureLoadBalancer(ctx context.Context, clusterName string
 		listenerDescription := getListenerDescription(listenerProtocol, redirectHttp, lowTlsv)
 		if listener == nil {
 			listenerCreateOpt := listeners.CreateOpts{
-				Name:                   cutString(fmt.Sprintf("listener_%d_%s", portIndex, name)),
+				Name:                   cutString(fmt.Sprintf("listener-%d-%s", portIndex, name)),
 				Description:            listenerDescription,
 				Protocol:               listenerProtocol,
 				ProtocolPort:           int(port.Port),
@@ -469,7 +469,7 @@ func (lbaas *LBaasV2) EnsureLoadBalancer(ctx context.Context, clusterName string
 			poolProto := getPoolProtocol(backendProtocol)
 			lbmethod := v2pools.LBMethod(lbaas.opts.LBMethod)
 			createOpt := v2pools.CreateOpts{
-				Name:        cutString(fmt.Sprintf("pool_%d_%s", portIndex, name)),
+				Name:        cutString(fmt.Sprintf("pool-%d-%s", portIndex, name)),
 				Protocol:    poolProto,
 				LBMethod:    lbmethod,
 				ListenerID:  listener.ID,
@@ -522,7 +522,7 @@ func (lbaas *LBaasV2) EnsureLoadBalancer(ctx context.Context, clusterName string
 			if !memberExists(members, addr, int(port.NodePort)) {
 				klog.V(4).Infof("Creating member for pool %s", pool.ID)
 				_, err := v2pools.CreateMember(lbaas.lb, pool.ID, v2pools.CreateMemberOpts{
-					Name:         cutString(fmt.Sprintf("member_%d_%s_%s", portIndex, node.Name, name)),
+					Name:         cutString(fmt.Sprintf("member-%d-%s-%s", portIndex, node.Name, name)),
 					ProtocolPort: int(port.NodePort),
 					Address:      addr,
 					SubnetID:     lbaas.opts.SubnetID,
@@ -569,18 +569,18 @@ func (lbaas *LBaasV2) EnsureLoadBalancer(ctx context.Context, clusterName string
 				return nil, err
 			}
 
-			monitorTimeout, err := getIntFromServiceAnnotation(apiService, ServiceAnnotationHealthCheckInterval, lbaas.opts.MonitorTimeout)
+			monitorTimeout, err := getIntFromServiceAnnotation(apiService, ServiceAnnotationHealthCheckTimeout, lbaas.opts.MonitorTimeout)
 			if err != nil {
 				return nil, err
 			}
 
-			monitorRetry, err := getIntFromServiceAnnotation(apiService, ServiceAnnotationHealthCheckInterval, int(lbaas.opts.MonitorMaxRetries))
+			monitorRetry, err := getIntFromServiceAnnotation(apiService, ServiceAnnotationHealthCheckRetry, int(lbaas.opts.MonitorMaxRetries))
 			if err != nil {
 				return nil, err
 			}
 
 			monitor, err := v2monitors.Create(lbaas.lb, v2monitors.CreateOpts{
-				Name:       cutString(fmt.Sprintf("monitor_%d_%s)", portIndex, name)),
+				Name:       cutString(fmt.Sprintf("monitor-%d-%s)", portIndex, name)),
 				PoolID:     pool.ID,
 				Type:       monitorProtocol,
 				Delay:      monitorInterval,
@@ -765,7 +765,7 @@ func (lbaas *LBaasV2) UpdateLoadBalancer(ctx context.Context, clusterName string
 				continue
 			}
 			_, err := v2pools.CreateMember(lbaas.lb, pool.ID, v2pools.CreateMemberOpts{
-				Name:         cutString(fmt.Sprintf("member_%d_%s_%s_", portIndex, node.Name, loadbalancer.Name)),
+				Name:         cutString(fmt.Sprintf("member-%d-%s-%s", portIndex, node.Name, loadbalancer.Name)),
 				Address:      addr,
 				ProtocolPort: int(port.NodePort),
 				SubnetID:     lbaas.opts.SubnetID,
