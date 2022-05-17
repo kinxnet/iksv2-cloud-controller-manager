@@ -580,7 +580,7 @@ func (lbaas *LBaasV2) EnsureLoadBalancer(ctx context.Context, clusterName string
 			}
 
 			monitor, err := v2monitors.Create(lbaas.lb, v2monitors.CreateOpts{
-				Name:       cutString(fmt.Sprintf("monitor-%d-%s)", portIndex, name)),
+				Name:       cutString(fmt.Sprintf("monitor-%d-%s", portIndex, name)),
 				PoolID:     pool.ID,
 				Type:       monitorProtocol,
 				Delay:      monitorInterval,
