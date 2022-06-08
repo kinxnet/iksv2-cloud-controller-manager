@@ -169,7 +169,7 @@ func cutString(original string) string {
 func (lbaas *LBaasV2) createLoadBalancer(service *corev1.Service, name, clusterName string, lbClass *LBClass, internalAnnotation bool, vipPort string) (*loadbalancers.LoadBalancer, error) {
 	createOpts := loadbalancers.CreateOpts{
 		Name:        name,
-		Description: fmt.Sprintf("Kubernetes external service %s/%s from cluster %s", service.Namespace, service.Name, clusterName),
+		Description: fmt.Sprintf("Kubernetes external service %s/%s from cluster %s,lb_version:1.1", service.Namespace, service.Name, clusterName),
 		Provider:    lbaas.opts.LBProvider,
 	}
 
@@ -865,7 +865,7 @@ func getListenerDescription(protocol listeners.Protocol, redirectHttp bool, lowT
 
 		return "forward:set-header x-forwarded-proto http"
 
-	case listeners.ProtocolHTTPS:
+	case listeners.ProtocolTerminatedHTTPS:
 		if lowTlsv {
 			return "forward:set-header x-forwarded-proto https,tlsv:\"no-tlsv10 no-tlsv11\""
 		}
