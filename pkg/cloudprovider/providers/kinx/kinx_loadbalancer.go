@@ -505,6 +505,10 @@ func (lbaas *LBaasV2) EnsureLoadBalancer(ctx context.Context, clusterName string
 
 		if pool == nil {
 			poolProto := getPoolProtocol(backendProtocol)
+			lbMethodStr := getStringFromServiceAnnotation(apiService, ServiceAnnotationLBMethod, lbaas.opts.LBMethod)
+			if _, ok := validLBMethods[lbMethodStr]; !ok {
+				return nil, fmt.Errorf("invalid %s annotation value %q: must be one of ROUND_ROBIN, LEAST_CONNECTIONS, SOURCE_IP", ServiceAnnotationLBMethod, lbMethodStr)
+			}
 			lbmethod := v2pools.LBMethod(lbMethodStr)
 			createOpt := v2pools.CreateOpts{
 				Name:        cutString(fmt.Sprintf("pool-%d-%s", portIndex, name)),
