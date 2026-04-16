@@ -1,3 +1,17 @@
+## Location to install dependencies to
+LOCALBIN ?= $(shell pwd)/bin
+$(LOCALBIN):
+	mkdir -p $(LOCALBIN)
+
+## Tool Binaries
+KO             ?= $(LOCALBIN)/ko
+
+.PHONY: ko
+ko: $(KO) ## Download ko locally if necessary.
+$(KO): $(LOCALBIN)
+	test -s $(LOCALBIN)/ko || GOBIN=$(LOCALBIN) CGO_ENABLED=0 go install -ldflags="-s -w" github.com/google/ko@v0.18.1
+	
+
 # golang-client Makefile
 
 GIT_HOST = github.com/kinxnet
@@ -19,6 +33,9 @@ VERSION		?= "v1.0.0"
 LDFLAGS		:= "-w -s -X 'github.com/kinxnet/cloud-provider-kinx/pkg/version.Version=${VERSION}'"
 REGISTRY	?= ghcr.io/kinxnet/cloud-provider-kinx
 IMAGE_NAMES	?= kinx-cloud-controller-manager
+
+# ko image builder settings
+KO_DOCKER_REPO ?= $(REGISTRY)
 
 work: $(GOBIN)
 
@@ -56,3 +73,23 @@ endif
 
 upload-image:
 	$(MAKE) build-images push-images
+
+# ko-based image build targets
+# Builds the image and loads it into the local Docker daemon.
+# Requires: ko (go install github.com/google/ko@latest)
+ko-build: $(KO)
+	VERSION=$(VERSION) $(KO) build ./cmd/cloud-controller-manager \
+		--image-refs=.ko-image-refs \
+		--platform=linux/amd64 \
+		--sbom=none \
+		--tags=$(VERSION)
+
+# Builds the image and pushes it to the registry specified by KO_DOCKER_REPO (defaults to REGISTRY).
+ko-publish: $(KO)
+	VERSION=$(VERSION) KO_DOCKER_REPO=$(KO_DOCKER_REPO) \
+		$(KO) build ./cmd/cloud-controller-manager \
+		--platform=linux/amd64 \
+		--sbom=none \
+		--tags=$(VERSION),latest \
+		--bare \
+		--push=true

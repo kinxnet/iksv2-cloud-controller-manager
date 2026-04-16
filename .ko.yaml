@@ -1,0 +1,12 @@
+defaultBaseImage: gcr.io/distroless/static:nonroot
+
+builds:
+  - id: kinx-cloud-controller-manager
+    main: ./cmd/cloud-controller-manager
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -w
+      - -s
+      - -X
+      - github.com/kinxnet/cloud-provider-kinx/pkg/version.Version={{.Env.VERSION}}
