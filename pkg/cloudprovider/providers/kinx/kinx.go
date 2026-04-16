@@ -31,7 +31,7 @@ import (
 
 const (
 	// ProviderName is the name of the kinx provider
-	ProviderName = "kinx"
+	ProviderName = "openstack"
 
 	// TypeHostName is the name type of openstack instance
 	TypeHostName     = "hostname"
