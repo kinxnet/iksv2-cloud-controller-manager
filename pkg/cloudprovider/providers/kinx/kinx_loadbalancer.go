@@ -58,6 +58,10 @@ const (
 	backendProtocolHttp            = "http"
 	backendProtocolTcp             = "tcp"
 
+	// lb-provider fixed values — update here when provider names change
+	lbProviderPublic  = "kinx"         // used for public (external) load balancers
+	lbProviderPrivate = "kinx_private" // used when ServiceAnnotationInternalLB is "true"
+
 	// annotation
 	ServiceAnnotationBackendProtocol = "service.beta.kubernetes.io/kinx-load-balancer-backend-protocol"
 	ServiceAnnotationTlsContainerIds = "service.beta.kubernetes.io/kinx-load-balancer-tls-container-ids"
