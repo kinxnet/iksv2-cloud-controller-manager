@@ -65,6 +65,12 @@ const (
 	ServiceAnnotationProxyProtocol   = "service.beta.kubernetes.io/kinx-load-balancer-proxy-protocol"
 	ServiceAnnotationLowTlsv         = "service.beta.kubernetes.io/kinx-load-balancer-low-tlsv"
 
+	ServiceAnnotationInternalLB = "service.beta.kubernetes.io/openstack-internal-load-balancer"
+
+	// lb-provider fixed values — update here when provider names change
+	lbProviderPublic  = "kinx"         // used for public (external) load balancers
+	lbProviderPrivate = "kinx-private" // used when ServiceAnnotationInternalLB is "true"
+
 	// health monitor annotation
 	ServiceAnnotationHealthCheckInterval = "service.beta.kubernetes.io/kinx-load-balancer-healthcheck-interval"
 	ServiceAnnotationHealthCheckRetry    = "service.beta.kubernetes.io/kinx-load-balancer-healthcheck-retry"
@@ -167,10 +173,16 @@ func cutString(original string) string {
 }
 
 func (lbaas *LBaasV2) createLoadBalancer(service *corev1.Service, name, clusterName string, lbClass *LBClass, internalAnnotation bool, vipPort string) (*loadbalancers.LoadBalancer, error) {
+	lbProvider := lbProviderPublic
+	if internalAnnotation {
+		lbProvider = lbProviderPrivate
+	}
+	klog.V(4).Infof("Using lb-provider %q for service %s/%s", lbProvider, service.Namespace, service.Name)
+
 	createOpts := loadbalancers.CreateOpts{
 		Name:        name,
 		Description: fmt.Sprintf("Kubernetes external service %s/%s from cluster %s,lb_version:1.1", service.Namespace, service.Name, clusterName),
-		Provider:    lbaas.opts.LBProvider,
+		Provider:    lbProvider,
 	}
 
 	if vipPort != "" {
@@ -368,7 +380,13 @@ func (lbaas *LBaasV2) EnsureLoadBalancer(ctx context.Context, clusterName string
 
 		klog.V(2).Infof("Creating loadbalancer %s", name)
 
-		loadbalancer, err = lbaas.createLoadBalancer(apiService, name, clusterName, nil /* lbClass */, false /* internal */, "" /* portID */)
+		internalAnnotation, err := getBoolFromServiceAnnotation(apiService, ServiceAnnotationInternalLB, false)
+		if err != nil {
+			klog.Warningf("Invalid value for annotation %s on service %s/%s, using false: %v", ServiceAnnotationInternalLB, apiService.Namespace, apiService.Name, err)
+			internalAnnotation = false
+		}
+
+		loadbalancer, err = lbaas.createLoadBalancer(apiService, name, clusterName, nil /* lbClass */, internalAnnotation, "" /* portID */)
 		if err != nil {
 			return nil, fmt.Errorf("error creating loadbalancer %s: %v", name, err)
 		}

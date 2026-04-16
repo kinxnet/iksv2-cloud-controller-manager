@@ -103,7 +103,6 @@ type LoadBalancerOpts struct {
 	FloatingSubnetID     string              `gcfg:"floating-subnet-id"`  // If specified, will create floating ip for loadbalancer in this particular floating pool subnetwork.
 	LBClasses            map[string]*LBClass // Predefined named Floating networks and subnets
 	LBMethod             string              `gcfg:"lb-method"` // default to ROUND_ROBIN.
-	LBProvider           string              `gcfg:"lb-provider"`
 	CreateMonitor        bool                `gcfg:"create-monitor"`
 	MonitorDelay         int                 `gcfg:"monitor-delay"`
 	MonitorTimeout       int                 `gcfg:"monitor-timeout"`
@@ -313,7 +312,6 @@ func ReadConfig(config io.Reader) (Config, error) {
 
 	// Set default values explicitly
 	cfg.LoadBalancer.InternalLB = false
-	cfg.LoadBalancer.LBProvider = "kinx"
 	cfg.LoadBalancer.LBMethod = "ROUND_ROBIN"
 	cfg.LoadBalancer.ManageSecurityGroups = false
 	cfg.LoadBalancer.CreateMonitor = true
