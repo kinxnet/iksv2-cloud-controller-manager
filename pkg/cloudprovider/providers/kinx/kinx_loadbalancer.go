@@ -69,13 +69,24 @@ const (
 
 	// lb-provider fixed values — update here when provider names change
 	lbProviderPublic  = "kinx"         // used for public (external) load balancers
-	lbProviderPrivate = "kinx-private" // used when ServiceAnnotationInternalLB is "true"
+	lbProviderPrivate = "kinx_private" // used when ServiceAnnotationInternalLB is "true"
 
 	// health monitor annotation
 	ServiceAnnotationHealthCheckInterval = "service.beta.kubernetes.io/kinx-load-balancer-healthcheck-interval"
 	ServiceAnnotationHealthCheckRetry    = "service.beta.kubernetes.io/kinx-load-balancer-healthcheck-retry"
 	ServiceAnnotationHealthCheckTimeout  = "service.beta.kubernetes.io/kinx-load-balancer-healthcheck-timeout"
+
+	// lb-method annotation — overrides cloud config lb-method per service
+	// Valid values: ROUND_ROBIN, LEAST_CONNECTIONS, SOURCE_IP, SOURCE_IP_PORT
+	ServiceAnnotationLBMethod = "loadbalancer.openstack.org/lb-method"
 )
+
+// validLBMethods contains the set of lb_algorithm values accepted by OpenStack Octavia.
+var validLBMethods = map[string]bool{
+	"ROUND_ROBIN":       true,
+	"LEAST_CONNECTIONS": true,
+	"SOURCE_IP":         true,
+}
 
 // LbaasV2 is a LoadBalancer implementation for Neutron LBaaS v2 API
 type LBaasV2 struct {
@@ -485,7 +496,11 @@ func (lbaas *LBaasV2) EnsureLoadBalancer(ctx context.Context, clusterName string
 
 		if pool == nil {
 			poolProto := getPoolProtocol(backendProtocol)
-			lbmethod := v2pools.LBMethod(lbaas.opts.LBMethod)
+			lbMethodStr := getStringFromServiceAnnotation(apiService, ServiceAnnotationLBMethod, lbaas.opts.LBMethod)
+			if _, ok := validLBMethods[lbMethodStr]; !ok {
+				return nil, fmt.Errorf("invalid %s annotation value %q: must be one of ROUND_ROBIN, LEAST_CONNECTIONS, SOURCE_IP", ServiceAnnotationLBMethod, lbMethodStr)
+			}
+			lbmethod := v2pools.LBMethod(lbMethodStr)
 			createOpt := v2pools.CreateOpts{
 				Name:        cutString(fmt.Sprintf("pool-%d-%s", portIndex, name)),
 				Protocol:    poolProto,
@@ -1034,7 +1049,7 @@ func (lbaas *LBaasV2) getSubnet(subnet string) (*subnets.Subnet, error) {
 	return nil, fmt.Errorf("find multiple subnets with name %s", subnet)
 }
 
-//getStringFromServiceAnnotation searches a given v1.Service for a specific annotationKey and either returns the annotation's value or a specified defaultSetting
+// getStringFromServiceAnnotation searches a given v1.Service for a specific annotationKey and either returns the annotation's value or a specified defaultSetting
 func getStringFromServiceAnnotation(service *corev1.Service, annotationKey string, defaultSetting string) string {
 	klog.V(4).Infof("getStringFromServiceAnnotation(%v, %v, %v)", service, annotationKey, defaultSetting)
 	if annotationValue, ok := service.Annotations[annotationKey]; ok {
@@ -1049,7 +1064,7 @@ func getStringFromServiceAnnotation(service *corev1.Service, annotationKey strin
 	return defaultSetting
 }
 
-//getIntFromServiceAnnotation searches a given v1.Service for a specific annotationKey and either returns the annotation's value or a specified defaultSetting
+// getIntFromServiceAnnotation searches a given v1.Service for a specific annotationKey and either returns the annotation's value or a specified defaultSetting
 func getIntFromServiceAnnotation(service *corev1.Service, annotationKey string, defaultSetting int) (int, error) {
 	klog.V(4).Infof("getIntFromServiceAnnotation(%v, %v, %v)", service, annotationKey, defaultSetting)
 	if annotationValue, ok := service.Annotations[annotationKey]; ok {
@@ -1072,7 +1087,7 @@ func getIntFromServiceAnnotation(service *corev1.Service, annotationKey string, 
 	return defaultSetting, nil
 }
 
-//getBoolFromServiceAnnotation searches a given v1.Service for a specific annotationKey and either returns the annotation's value or a specified defaultSetting
+// getBoolFromServiceAnnotation searches a given v1.Service for a specific annotationKey and either returns the annotation's value or a specified defaultSetting
 func getBoolFromServiceAnnotation(service *corev1.Service, annotationKey string, defaultSetting bool) (bool, error) {
 	klog.V(4).Infof("getBoolFromServiceAnnotation(%v, %v, %v)", service, annotationKey, defaultSetting)
 	if annotationValue, ok := service.Annotations[annotationKey]; ok {
