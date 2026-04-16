@@ -34,7 +34,7 @@ spec:
       serviceAccountName: cloud-controller-manager
       containers:
         - name: kinx-cloud-controller-manager
-          image: docker.pkg.github.com/kinxnet/cloud-provider-kinx/kinx-cloud-controller-manager:940fa04a
+          image: docker.pkg.github.com/kinxnet/iksv2-cloud-controller-manager/kinx-cloud-controller-manager:940fa04a
           args:
             - /bin/kinx-cloud-controller-manager
             - --v=1

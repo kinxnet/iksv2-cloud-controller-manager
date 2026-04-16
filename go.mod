@@ -1,4 +1,4 @@
-module github.com/kinxnet/cloud-provider-kinx
+module github.com/kinxnet/iksv2-cloud-controller-manager
 
 go 1.14
 

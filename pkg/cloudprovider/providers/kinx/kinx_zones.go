@@ -5,7 +5,7 @@ import (
 
 	"github.com/gophercloud/gophercloud/openstack/compute/v2/servers"
 
-	"github.com/kinxnet/cloud-provider-kinx/pkg/util/metadata"
+	"github.com/kinxnet/iksv2-cloud-controller-manager/pkg/util/metadata"
 	"k8s.io/apimachinery/pkg/types"
 	cloudprovider "k8s.io/cloud-provider"
 	"k8s.io/klog/v2"

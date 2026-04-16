@@ -26,7 +26,7 @@ import (
 	cloudprovider "k8s.io/cloud-provider"
 	"k8s.io/klog/v2"
 
-	cpoerrors "github.com/kinxnet/cloud-provider-kinx/pkg/util/errors"
+	cpoerrors "github.com/kinxnet/iksv2-cloud-controller-manager/pkg/util/errors"
 	netsets "k8s.io/cloud-provider-openstack/pkg/util/net/sets"
 	openstackutil "k8s.io/cloud-provider-openstack/pkg/util/openstack"
 )

@@ -91,7 +91,7 @@ go install github.com/google/ko@latest
 make ko-build VERSION=v1.0.0
 
 # 이미지 빌드 + 레지스트리 푸시
-make ko-publish VERSION=v1.0.0 REGISTRY=ghcr.io/kinxnet/cloud-provider-kinx
+make ko-publish VERSION=v1.0.0 REGISTRY=ghcr.io/kinxnet/iksv2-cloud-controller-manager
 ```
 
 ### Docker 사용 (기존 방식)

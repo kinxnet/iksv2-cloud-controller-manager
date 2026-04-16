@@ -15,9 +15,9 @@ import (
 	"github.com/gophercloud/gophercloud/pagination"
 	"github.com/mitchellh/mapstructure"
 
-	"github.com/kinxnet/cloud-provider-kinx/pkg/util"
-	"github.com/kinxnet/cloud-provider-kinx/pkg/util/errors"
-	"github.com/kinxnet/cloud-provider-kinx/pkg/util/metadata"
+	"github.com/kinxnet/iksv2-cloud-controller-manager/pkg/util"
+	"github.com/kinxnet/iksv2-cloud-controller-manager/pkg/util/errors"
+	"github.com/kinxnet/iksv2-cloud-controller-manager/pkg/util/metadata"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	cloudprovider "k8s.io/cloud-provider"

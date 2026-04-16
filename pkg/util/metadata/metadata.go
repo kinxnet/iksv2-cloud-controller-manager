@@ -29,7 +29,7 @@ import (
 
 	"k8s.io/klog/v2"
 
-	"github.com/kinxnet/cloud-provider-kinx/pkg/util/mount"
+	"github.com/kinxnet/iksv2-cloud-controller-manager/pkg/util/mount"
 	"k8s.io/utils/exec"
 )
 

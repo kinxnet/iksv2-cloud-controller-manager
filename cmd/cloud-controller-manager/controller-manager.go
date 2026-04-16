@@ -24,8 +24,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/kinxnet/cloud-provider-kinx/cmd/cloud-controller-manager/app"
-	_ "github.com/kinxnet/cloud-provider-kinx/pkg/cloudprovider/providers/kinx"
+	"github.com/kinxnet/iksv2-cloud-controller-manager/cmd/cloud-controller-manager/app"
+	_ "github.com/kinxnet/iksv2-cloud-controller-manager/pkg/cloudprovider/providers/kinx"
 
 	"k8s.io/component-base/logs"
 	_ "k8s.io/component-base/metrics/prometheus/version" // for version metric registration

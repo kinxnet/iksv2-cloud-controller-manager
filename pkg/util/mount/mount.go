@@ -30,7 +30,7 @@ import (
 	"k8s.io/utils/exec"
 	"k8s.io/utils/mount"
 
-	"github.com/kinxnet/cloud-provider-kinx/pkg/util/blockdevice"
+	"github.com/kinxnet/iksv2-cloud-controller-manager/pkg/util/blockdevice"
 )
 
 const (
@@ -81,7 +81,7 @@ func getBaseMounter() *mount.SafeFormatAndMount {
 	}
 }
 
-//GetMountProvider returns instance of Mounter
+// GetMountProvider returns instance of Mounter
 func GetMountProvider() IMount {
 	if MInstance == nil {
 		MInstance = &Mount{BaseMounter: getBaseMounter()}

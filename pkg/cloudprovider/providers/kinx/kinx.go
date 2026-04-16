@@ -21,8 +21,8 @@ import (
 	"github.com/gophercloud/utils/openstack/clientconfig"
 	gcfg "gopkg.in/gcfg.v1"
 
-	"github.com/kinxnet/cloud-provider-kinx/pkg/util/metadata"
-	"github.com/kinxnet/cloud-provider-kinx/pkg/version"
+	"github.com/kinxnet/iksv2-cloud-controller-manager/pkg/util/metadata"
+	"github.com/kinxnet/iksv2-cloud-controller-manager/pkg/version"
 	netutil "k8s.io/apimachinery/pkg/util/net"
 	certutil "k8s.io/client-go/util/cert"
 	cloudprovider "k8s.io/cloud-provider"

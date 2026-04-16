@@ -30,8 +30,8 @@ TEMP_DIR	:=$(shell mktemp -d)
 
 GOOS		?= $(shell go env GOOS)
 VERSION		?= "v1.0.0"
-LDFLAGS		:= "-w -s -X 'github.com/kinxnet/cloud-provider-kinx/pkg/version.Version=${VERSION}'"
-REGISTRY	?= ghcr.io/kinxnet/cloud-provider-kinx
+LDFLAGS		:= "-w -s -X 'github.com/kinxnet/iksv2-cloud-controller-manager/pkg/version.Version=${VERSION}'"
+REGISTRY	?= ghcr.io/kinxnet/iksv2-cloud-controller-manager
 IMAGE_NAMES	?= kinx-cloud-controller-manager
 
 # ko image builder settings
