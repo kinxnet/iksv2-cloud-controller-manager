@@ -35,7 +35,7 @@ REGISTRY	?= ghcr.io/kinxnet/iksv2-cloud-controller-manager
 IMAGE_NAMES	?= kinx-cloud-controller-manager
 
 # ko image builder settings
-KO_DOCKER_REPO ?= $(REGISTRY)
+KO_DOCKER_REPO ?= $(REGISTRY)/$(IMAGE_NAMES)
 
 work: $(GOBIN)
 
@@ -46,33 +46,6 @@ kinx-cloud-controller-manager: work $(SOURCES)
 		-ldflags $(LDFLAGS) \
 		-o kinx-cloud-controller-manager \
 		cmd/cloud-controller-manager/controller-manager.go
-
-# Remove individual image builder once we migrate openlab-zuul-jobs
-# to use new image-openstack-cloud-controller-manager target.
-image-kinx-cloud-controller-manager: work kinx-cloud-controller-manager
-ifeq ($(GOOS),linux)
-	cp -r cluster/images/kinx-cloud-controller-manager $(TEMP_DIR)
-	cp kinx-cloud-controller-manager $(TEMP_DIR)/kinx-cloud-controller-manager
-	cp $(TEMP_DIR)/kinx-cloud-controller-manager/Dockerfile.build $(TEMP_DIR)/kinx-cloud-controller-manager/Dockerfile
-	docker build -t $(REGISTRY)/kinx-cloud-controller-manager:$(VERSION) $(TEMP_DIR)/kinx-cloud-controller-manager
-	rm -rf $(TEMP_DIR)/kinx-cloud-controller-manager
-else
-	$(error Please set GOOS=linux for building the image)
-endif
-
-build-images: $(addprefix image-,$(IMAGE_NAMES))
-
-push-images: $(addprefix push-image-,$(IMAGE_NAMES))
-
-push-image-%:
-	@echo "push image $* to $(REGISTRY)"
-ifneq ($(and $(DOCKER_USERNAME),$(DOCKER_PASSWORD)),)
-	@docker login -u="$(DOCKER_USERNAME)" -p="$(DOCKER_PASSWORD)"
-endif
-	docker push $(REGISTRY)/$*:$(VERSION)
-
-upload-image:
-	$(MAKE) build-images push-images
 
 # ko-based image build targets
 # Builds the image and loads it into the local Docker daemon.
