@@ -1,0 +1,12 @@
+defaultBaseImage: gcr.io/distroless/static:nonroot
+
+builds:
+  - id: iksv2-cloud-controller-manager
+    main: ./cmd/cloud-controller-manager
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -w
+      - -s
+      - -X
+      - github.com/kinxnet/iksv2-cloud-controller-manager/pkg/version.Version={{.Env.VERSION}}
