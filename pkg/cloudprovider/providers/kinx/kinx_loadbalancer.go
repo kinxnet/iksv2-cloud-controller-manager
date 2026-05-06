@@ -319,8 +319,8 @@ func (lbaas *LBaasV2) EnsureLoadBalancer(ctx context.Context, clusterName string
 	klog.V(4).Infof("EnsureLoadBalancer(%s, %s)", clusterName, serviceName)
 
 	backendProtocol := getStringFromServiceAnnotation(apiService, ServiceAnnotationBackendProtocol, "")
-	if !isBackendProtocol(backendProtocol) {
-		return nil, fmt.Errorf("\"%s\" is an unsupported protocol", backendProtocol)
+	if backendProtocol != "" && !isBackendProtocol(backendProtocol) {
+		return nil, fmt.Errorf("%q is an unsupported backend protocol", backendProtocol)
 	}
 
 	if len(nodes) == 0 {
@@ -428,11 +428,31 @@ func (lbaas *LBaasV2) EnsureLoadBalancer(ctx context.Context, clusterName string
 		listener := getListenerForPort(oldListeners, port)
 		connLimit := -1
 
+		// Resolve effective backend protocol per listener.
+		// OpenStack LBaaS v2 does not allow updating a listener/pool protocol after creation,
+		// so the existing listener's protocol is the source of truth until it is deleted.
+		effectiveBackendProtocol := backendProtocol
+		if listener != nil {
+			existingBackendProtocol := backendProtocolFromListenerProtocol(listeners.Protocol(listener.Protocol))
+			if effectiveBackendProtocol == "" {
+				// Annotation absent: maintain the existing listener's protocol.
+				klog.V(4).Infof("Backend protocol annotation absent; maintaining existing listener %s protocol %q", listener.ID, existingBackendProtocol)
+				effectiveBackendProtocol = existingBackendProtocol
+			} else if effectiveBackendProtocol != existingBackendProtocol {
+				// Annotation changed but OpenStack cannot update protocol; keep existing.
+				klog.Warningf("Backend protocol annotation %q conflicts with existing listener %s protocol %q; maintaining existing protocol until listener is deleted", effectiveBackendProtocol, listener.ID, existingBackendProtocol)
+				effectiveBackendProtocol = existingBackendProtocol
+			}
+		} else if effectiveBackendProtocol == "" {
+			// New listener with no annotation: default to tcp.
+			effectiveBackendProtocol = backendProtocolTcp
+		}
+
 		// get listener annotation
 		redirectHttp, _ := getBoolFromServiceAnnotation(apiService, ServiceAnnotationRedirectHttp, false)
 		lowTlsv, _ := getBoolFromServiceAnnotation(apiService, ServiceAnnotationLowTlsv, false)
 
-		listenerProtocol := getListenerProtocol(backendProtocol)
+		listenerProtocol := getListenerProtocol(effectiveBackendProtocol)
 		listenerDescription := getListenerDescription(listenerProtocol, redirectHttp, lowTlsv)
 		if listener == nil {
 			listenerCreateOpt := listeners.CreateOpts{
@@ -504,7 +524,7 @@ func (lbaas *LBaasV2) EnsureLoadBalancer(ctx context.Context, clusterName string
 		}
 
 		if pool == nil {
-			poolProto := getPoolProtocol(backendProtocol)
+			poolProto := getPoolProtocol(effectiveBackendProtocol)
 			lbMethodStr := getStringFromServiceAnnotation(apiService, ServiceAnnotationLBMethod, lbaas.opts.LBMethod)
 			if _, ok := validLBMethods[lbMethodStr]; !ok {
 				return nil, fmt.Errorf("invalid %s annotation value %q: must be one of ROUND_ROBIN, LEAST_CONNECTIONS, SOURCE_IP", ServiceAnnotationLBMethod, lbMethodStr)
@@ -888,6 +908,20 @@ func getListenerProtocol(backendProtocol string) listeners.Protocol {
 		return listeners.ProtocolTCP
 	}
 	return ""
+}
+
+// backendProtocolFromListenerProtocol reverses getListenerProtocol.
+// Used to recover the effective backend protocol from an existing listener so that
+// the protocol is preserved when the annotation is absent or changed.
+func backendProtocolFromListenerProtocol(listenerProtocol listeners.Protocol) string {
+	switch listenerProtocol {
+	case listeners.ProtocolTerminatedHTTPS:
+		return backendProtocolTerminatedHttps
+	case listeners.ProtocolHTTP:
+		return backendProtocolHttp
+	default:
+		return backendProtocolTcp
+	}
 }
 
 func getPoolProtocol(backendProtocol string) v2pools.Protocol {
