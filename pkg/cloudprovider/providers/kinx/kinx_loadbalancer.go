@@ -79,6 +79,11 @@ const (
 	// lb-method annotation — overrides cloud config lb-method per service
 	// Valid values: ROUND_ROBIN, LEAST_CONNECTIONS, SOURCE_IP, SOURCE_IP_PORT
 	ServiceAnnotationLBMethod = "loadbalancer.openstack.org/lb-method"
+
+	// ServiceAnnotationLoadBalancerID is the annotation key used to record the
+	// OpenStack load balancer UUID on the Service object after EnsureLoadBalancer
+	// completes successfully.
+	ServiceAnnotationLoadBalancerID = "service.beta.kubernetes.io/kinx-load-balancer-id"
 )
 
 // validLBMethods contains the set of lb_algorithm values accepted by OpenStack Octavia.
@@ -130,7 +135,7 @@ func (k *Kinx) LoadBalancer() (cloudprovider.LoadBalancer, bool) {
 
 	klog.V(1).Info("Claiming to support LoadBalancer")
 
-	return &LBaasV2{LoadBalancer{secret, network, compute, lb, k.lbOpts}}, true
+	return &LBaasV2{LoadBalancer{secret, network, compute, lb, k.lbOpts, k.kubeClient, k.eventRecorder}}, true
 }
 
 // GetLoadBalancer returns whether the specified load balancer exists and its status
@@ -309,7 +314,11 @@ func waitLoadbalancerActiveProvisioningStatus(client *gophercloud.ServiceClient,
 }
 
 // EnsureLoadBalancer creates a new load balancer or updates the existing one.
-func (lbaas *LBaasV2) EnsureLoadBalancer(ctx context.Context, clusterName string, apiService *corev1.Service, nodes []*corev1.Node) (*corev1.LoadBalancerStatus, error) {
+func (lbaas *LBaasV2) EnsureLoadBalancer(ctx context.Context, clusterName string, apiService *corev1.Service, nodes []*corev1.Node) (lbs *corev1.LoadBalancerStatus, err error) {
+	// Update the service annotations(e.g. add loadbalancer.openstack.org/load-balancer-id) in the end if it doesn't exist.
+	patcher := newServicePatcher(lbaas.kubeClient, apiService)
+	defer func() { err = patcher.Patch(ctx, err) }()
+
 	serviceName := fmt.Sprintf("%s/%s", apiService.Namespace, apiService.Name)
 
 	klog.V(4).Infof("EnsureLoadBalancer(%s, %s)", clusterName, serviceName)
@@ -414,6 +423,9 @@ func (lbaas *LBaasV2) EnsureLoadBalancer(ctx context.Context, clusterName string
 	if err != nil {
 		return nil, fmt.Errorf("could not get loadbalancer object")
 	}
+
+	// Make sure LB ID will be saved at this point.
+	lbaas.updateServiceAnnotation(apiService, ServiceAnnotationLoadBalancerID, loadbalancer.ID)
 
 	oldListeners, err := getListenersByLoadBalancerID(lbaas.lb, loadbalancer.ID)
 	if err != nil {
