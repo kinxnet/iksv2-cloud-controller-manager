@@ -20,10 +20,15 @@ import (
 	"github.com/gophercloud/utils/client"
 	"github.com/gophercloud/utils/openstack/clientconfig"
 	gcfg "gopkg.in/gcfg.v1"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/tools/record"
 
 	"github.com/kinxnet/iksv2-cloud-controller-manager/pkg/util/metadata"
 	"github.com/kinxnet/iksv2-cloud-controller-manager/pkg/version"
 	netutil "k8s.io/apimachinery/pkg/util/net"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/scheme"
+	v1core "k8s.io/client-go/kubernetes/typed/core/v1"
 	certutil "k8s.io/client-go/util/cert"
 	cloudprovider "k8s.io/cloud-provider"
 	"k8s.io/klog/v2"
@@ -87,11 +92,13 @@ type NetworkingOpts struct {
 
 // LoadBalancer is used for creating and maintaining load balancers
 type LoadBalancer struct {
-	secret  *gophercloud.ServiceClient
-	network *gophercloud.ServiceClient
-	compute *gophercloud.ServiceClient
-	lb      *gophercloud.ServiceClient
-	opts    LoadBalancerOpts
+	secret        *gophercloud.ServiceClient
+	network       *gophercloud.ServiceClient
+	compute       *gophercloud.ServiceClient
+	lb            *gophercloud.ServiceClient
+	opts          LoadBalancerOpts
+	kubeClient    kubernetes.Interface
+	eventRecorder record.EventRecorder
 }
 
 // LoadBalancerOpts have the options to talk to Neutron LBaaSV2 or Octavia
@@ -122,7 +129,10 @@ type Kinx struct {
 	metadataOpts      MetadataOpts
 	networkingOpts    NetworkingOpts
 	// InstanceID of the server where this OpenStack object is instantiated.
-	localInstanceID string
+	localInstanceID  string
+	kubeClient       kubernetes.Interface
+	eventBroadcaster record.EventBroadcaster
+	eventRecorder    record.EventRecorder
 }
 
 // MetadataOpts is used for configuring how to talk to metadata service or config drive
@@ -505,6 +515,12 @@ func NewKinx(cfg Config) (*Kinx, error) {
 
 // Initialize passes a Kubernetes clientBuilder interface to the cloud provider
 func (k *Kinx) Initialize(clientBuilder cloudprovider.ControllerClientBuilder, stop <-chan struct{}) {
+	clientset := clientBuilder.ClientOrDie("kinx-cloud-controller-manager")
+	k.kubeClient = clientset
+	k.eventBroadcaster = record.NewBroadcaster()
+	k.eventBroadcaster.StartRecordingToSink(&v1core.EventSinkImpl{Interface: k.kubeClient.CoreV1().Events("")})
+	k.eventRecorder = k.eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: "kinx-cloud-controller-manager"})
+
 }
 
 // Clusters is a no-op
