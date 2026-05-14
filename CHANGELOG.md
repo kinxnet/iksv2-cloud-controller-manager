@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.0.6] - 2026-05-14
+### Fixed
+- `vbom.ml/util` 도메인 소멸(404)로 인한 `go mod download` 실패 해결 — `go.mod` replace 디렉티브로 `github.com/fvbommel/util` 미러 우회 적용 (iksv2-api#8)
+- `kinx_loadbalancer.go` 내 `lbProviderPublic` / `lbProviderPrivate` 상수 중복 선언으로 인한 컴파일 오류 제거 (iksv2-api#8)
+
 ## [1.0.5] - 2026-04-16
 ### Added
 - 서비스별 `loadbalancer.openstack.org/lb-method` 어노테이션 지원 — cloud config 기본값을 서비스 단위로 재정의 가능
