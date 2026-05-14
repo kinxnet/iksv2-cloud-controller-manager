@@ -6,6 +6,7 @@ require (
 	github.com/gophercloud/gophercloud v0.15.0
 	github.com/gophercloud/utils v0.0.0-20200508015959-b0167b94122c
 	github.com/mitchellh/mapstructure v1.1.2
+	github.com/pkg/errors v0.8.1
 	github.com/prometheus/client_golang v1.4.1
 	github.com/spf13/cobra v0.0.5
 	github.com/stretchr/testify v1.5.1
@@ -48,4 +49,5 @@ replace (
 	k8s.io/sample-apiserver => k8s.io/sample-apiserver v0.18.0
 	k8s.io/sample-cli-plugin => k8s.io/sample-cli-plugin v0.18.0
 	k8s.io/sample-controller => k8s.io/sample-controller v0.18.0
+	vbom.ml/util => github.com/fvbommel/util v0.0.0-20160121211510-db5cfe13f5cc
 )

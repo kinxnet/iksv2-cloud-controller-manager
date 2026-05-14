@@ -71,10 +71,6 @@ const (
 
 	ServiceAnnotationInternalLB = "service.beta.kubernetes.io/openstack-internal-load-balancer"
 
-	// lb-provider fixed values — update here when provider names change
-	lbProviderPublic  = "kinx"         // used for public (external) load balancers
-	lbProviderPrivate = "kinx_private" // used when ServiceAnnotationInternalLB is "true"
-
 	// health monitor annotation
 	ServiceAnnotationHealthCheckInterval = "service.beta.kubernetes.io/kinx-load-balancer-healthcheck-interval"
 	ServiceAnnotationHealthCheckRetry    = "service.beta.kubernetes.io/kinx-load-balancer-healthcheck-retry"
