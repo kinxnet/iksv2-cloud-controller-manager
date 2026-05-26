@@ -31,7 +31,7 @@ TEMP_DIR	:=$(shell mktemp -d)
 GOOS		?= $(shell go env GOOS)
 VERSION		?= "v1.0.0"
 LDFLAGS		:= "-w -s -X 'github.com/kinxnet/iksv2-cloud-controller-manager/pkg/version.Version=${VERSION}'"
-REGISTRY	?= nexus.kinxcloud.net:8443/iks-infra-docker/iksv2/infra/docker/iksv2-cloud-controller-manager
+REGISTRY	?= ghcr.io/kinxnet/iksv2-cloud-controller-manager
 IMAGE_NAMES	?= kinx-cloud-controller-manager
 
 # ko image builder settings
