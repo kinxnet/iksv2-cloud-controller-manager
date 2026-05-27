@@ -124,6 +124,7 @@ type LoadBalancerOpts struct {
 type Kinx struct {
 	openstackProvider *gophercloud.ProviderClient
 	region            string
+	epType            gophercloud.Availability
 	lbOpts            LoadBalancerOpts
 	routeOpts         RouterOpts
 	metadataOpts      MetadataOpts
@@ -156,6 +157,7 @@ type AuthOpts struct {
 	UserDomainID     string `gcfg:"user-domain-id" mapstructure:"user-domain-id" name:"os-userDomainID" value:"optional"`
 	UserDomainName   string `gcfg:"user-domain-name" mapstructure:"user-domain-name" name:"os-userDomainName" value:"optional"`
 	Region           string `name:"os-region"`
+	EndpointType     gophercloud.Availability `gcfg:"os-endpoint-type" mapstructure:"os-endpoint-type" name:"os-endpointType" value:"optional"`
 	CAFile           string `gcfg:"ca-file" mapstructure:"ca-file" name:"os-certAuthorityPath" value:"optional"`
 
 	// Manila only options
@@ -196,6 +198,7 @@ func LogCfg(cfg Config) {
 	klog.V(5).Infof("UserDomainID: %s", cfg.Global.UserDomainID)
 	klog.V(5).Infof("UserDomainName: %s", cfg.Global.UserDomainName)
 	klog.V(5).Infof("Region: %s", cfg.Global.Region)
+	klog.V(5).Infof("EndpointType: %s", cfg.Global.EndpointType)
 	klog.V(5).Infof("CAFile: %s", cfg.Global.CAFile)
 	klog.V(5).Infof("UseClouds: %t", cfg.Global.UseClouds)
 	klog.V(5).Infof("CloudsFile: %s", cfg.Global.CloudsFile)
@@ -497,6 +500,7 @@ func NewKinx(cfg Config) (*Kinx, error) {
 	kinx := Kinx{
 		openstackProvider: provider,
 		region:            cfg.Global.Region,
+		epType:            cfg.Global.EndpointType,
 		lbOpts:            cfg.LoadBalancer,
 		metadataOpts:      cfg.Metadata,
 	}
