@@ -1,0 +1,329 @@
+name: "🤖 Agent 작업 요청"
+description: "Agent에게 코드 작성, 수정, 분석 등을 요청할 때 사용합니다. 모든 작업 유형에 사용 가능합니다."
+title: "[Agent] "
+labels: ["draft-by-human"]
+body:
+  # ─────────────────────────────────────────────────
+  # 안내 섹션
+  # ─────────────────────────────────────────────────
+  - type: markdown
+    attributes:
+      value: |
+        ## 작성 가이드
+
+        이 이슈는 agent가 작업을 시작하기 위한 **명세서**입니다.
+        빈칸을 충실히 채울수록 결과 품질이 올라갑니다.
+
+        - 모든 필수 항목(`*`)은 반드시 입력
+        - 해당 없는 항목은 `해당 없음`이라고 명시 (빈 채로 두지 말 것)
+        - 리뷰어들이 이슈 댓글에 `/approve` 또는 `/lgtm` 을 남겨 충분한 승인이 모이면(Low/Medium=1명, High=2명) `ready-for-agent` 라벨이 자동 부여되며, 승인 회수 시 자동 제거됩니다 (작업 중 회수는 `agent-wip` 라벨로 보호됨)
+        - **민감정보(시크릿, 크레덴셜, 고객 데이터)는 절대 포함 금지**
+
+  # ─────────────────────────────────────────────────
+  # 1. 작업 분류
+  # ─────────────────────────────────────────────────
+  - type: dropdown
+    id: task-type
+    attributes:
+      label: "1. 작업 유형 *"
+      description: "가장 가까운 유형을 선택하세요. 라벨이 자동 부여됩니다."
+      options:
+        - "신규 기능 추가 (feature)"
+        - "기존 코드 수정 (refactor)"
+        - "버그 수정 (bugfix)"
+        - "테스트 작성/보강 (test)"
+        - "문서 작성/업데이트 (docs)"
+        - "인프라/설정 (infra)"
+        - "분석/조사 (investigation)"
+        - "기타 (other)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: risk-level
+    attributes:
+      label: "2. 위험도 (blast radius) *"
+      description: |
+        장애 발생 시 영향 범위를 평가하세요.
+        - **Low**: 내부 도구, 문서, 격리된 모듈
+        - **Medium**: 단일 컴포넌트의 일반 로직
+        - **High**: 인증/인가, 외부 노출 API, 데이터 변경, 공유 인프라 — blast radius 큰 변경
+          → agent 자동화 전 별도 승인 필요. 휴먼 리뷰 2명 이상 필수.
+      options:
+        - "Low"
+        - "Medium"
+        - "High"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: domain
+    attributes:
+      label: "3. 도메인 영역 *"
+      description: |
+        가장 가까운 시스템 계층을 선택하세요. 부 도메인이 있으면 이슈 생성 후 추가 라벨로 부여 가능합니다.
+
+        도메인-위험도 가이드:
+        - **High 권장**: auth, data-plane, storage(스키마 변경)
+        - **Medium 권장**: control-plane, api(공개), integration
+        - **Low 권장**: docs, observability, sdk-cli, infra(읽기성)
+      options:
+        - "api (외부/내부 노출 엔드포인트)"
+        - "control-plane (reconcile, 오케스트레이션)"
+        - "data-plane (실시간 처리·트래픽)"
+        - "storage (DB, 캐시, 마이그레이션)"
+        - "auth (인증/인가/시크릿)"
+        - "integration (외부 SaaS·CSP 연동)"
+        - "observability (로깅·메트릭·트레이싱)"
+        - "infra (빌드·배포·CI/CD)"
+        - "sdk-cli (클라이언트 라이브러리·CLI)"
+        - "docs (문서)"
+    validations:
+      required: true
+
+  # ─────────────────────────────────────────────────
+  # 2. 컨텍스트 (Why)
+  # ─────────────────────────────────────────────────
+  - type: textarea
+    id: context
+    attributes:
+      label: "4. 배경/목적 *"
+      description: |
+        **왜** 이 작업이 필요한가요? 비즈니스/기술적 배경을 적어주세요.
+        Agent가 의도를 이해해야 좋은 결정을 합니다.
+      placeholder: |
+        예시:
+        - 현재 X 기능이 수동으로 처리되고 있어 자동화가 필요
+        - 신규 외부 시스템 도입으로 인한 호환성 확보 필요
+        - 관련 인시던트: INC-YYYY-NNNN
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: "5. 작업 범위 *"
+      description: |
+        **무엇을** 해야 하는지 구체적으로 적어주세요.
+        하지 않을 것(out of scope)도 명시하면 좋습니다.
+      placeholder: |
+        ## 포함
+        - 신규 엔드포인트 정의 및 핸들러 구현
+        - 입력 검증 로직
+        - 단위 테스트, 통합 테스트
+
+        ## 제외 (out of scope)
+        - 외부 저장소 연동 (별도 이슈)
+        - UI 변경
+    validations:
+      required: true
+
+  # ─────────────────────────────────────────────────
+  # 3. 입력 명세 (What)
+  # ─────────────────────────────────────────────────
+  - type: textarea
+    id: requirements
+    attributes:
+      label: "6. 요구사항 명세 *"
+      description: |
+        구체적인 입력/출력/동작을 명세하세요.
+        작업 유형에 따라 적절히 활용:
+        - **신규 기능**: API 스키마, 동작 흐름, 엣지 케이스
+        - **버그 수정**: 재현 방법, 기대 동작, 실제 동작
+        - **리팩토링**: 변경 전/후, 유지해야 할 동작
+        - **테스트**: 커버해야 할 시나리오
+      value: |
+        ## API/스키마 (해당 시)
+
+        | 필드 | 타입 | 필수 | 검증 | 설명 |
+        |------|------|------|------|------|
+        |      |      |      |      |      |
+
+        ## 동작 흐름
+
+        1.
+        2.
+        3.
+
+        ## 엣지 케이스
+        -
+        -
+
+        ## 외부 의존성
+        - 외부 서비스:
+        - 다른 컴포넌트:
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: "7. 완료 기준 (Acceptance Criteria) *"
+      description: |
+        무엇이 충족되면 이 작업이 끝난 것인가요?
+        체크박스로 작성하면 진행 상황 추적이 쉬워집니다.
+      value: |
+        - [ ] 기능: …이 동작한다
+        - [ ] 단위 테스트 커버리지 80% 이상
+        - [ ] e2e 테스트: happy path + 주요 에러 케이스
+        - [ ] 문서 업데이트 (API 문서, README)
+        - [ ] CI 모든 게이트 통과
+    validations:
+      required: true
+
+  # ─────────────────────────────────────────────────
+  # 4. 참조 자료
+  # ─────────────────────────────────────────────────
+  - type: textarea
+    id: references
+    attributes:
+      label: "8. 참조 자료"
+      description: |
+        Agent가 참고할 코드/문서 경로를 적어주세요.
+        구체적일수록 결과가 좋아집니다.
+      value: |
+        ## 필수 참조
+        - `/CLAUDE.md` (프로젝트 컨벤션)
+
+        ## 유사 코드 (참고 패턴)
+        - 예: 유사한 기능을 구현한 디렉터리 경로
+
+        ## 관련 이슈/PR
+        - #
+        - #
+
+        ## 외부 문서
+        -
+    validations:
+      required: false
+
+  # ─────────────────────────────────────────────────
+  # 5. 산출물
+  # ─────────────────────────────────────────────────
+  - type: textarea
+    id: deliverables
+    attributes:
+      label: "9. 산출물 *"
+      description: |
+        Agent가 만들어야 할 파일/변경 목록을 명시하세요.
+        파일 경로 단위로 끊어주는 게 빠뜨림이 없습니다.
+      placeholder: |
+        - [ ] `path/to/types.go` — 타입 정의
+        - [ ] `path/to/handler.go` — 핵심 로직
+        - [ ] `path/to/handler_test.go` — 단위 테스트
+        - [ ] `path/to/config.yaml` — 설정 파일
+        - [ ] `docs/feature.md` — 문서
+    validations:
+      required: true
+
+  # ─────────────────────────────────────────────────
+  # 6. 제약사항
+  # ─────────────────────────────────────────────────
+  - type: textarea
+    id: constraints
+    attributes:
+      label: "10. 제약사항 / 준수사항"
+      description: |
+        반드시 따라야 할 규칙, 절대 하지 말아야 할 것을 적어주세요.
+        프로젝트 공통 규칙 외 이슈 특화된 것만 적으면 됩니다.
+        (공통 규칙은 CLAUDE.md에서 자동 참조됨)
+      placeholder: |
+        ## 반드시 따를 것
+        - 모든 외부 호출에 타임아웃 및 취소 컨텍스트 전달
+        - 에러 컨텍스트 보존 (wrapping, traceback 등)
+        - 리소스 정리 보장 (defer, try/finally, with 구문 등)
+
+        ## 하지 말 것
+        - 시크릿을 로그/응답/Status에 노출
+        - 동기 호출 안에서 분 단위 폴링
+        - 검증 없는 사용자 입력을 그대로 외부 시스템에 전달
+    validations:
+      required: false
+
+  # ─────────────────────────────────────────────────
+  # 7. 검증
+  # ─────────────────────────────────────────────────
+  - type: textarea
+    id: validation
+    attributes:
+      label: "11. 검증 방법"
+      description: |
+        CI 외에 추가로 필요한 검증이 있다면 명시하세요.
+        기본 CI 게이트(lint, test, security scan)는 자동 실행됩니다.
+      placeholder: |
+        - 통합 테스트: 실제 환경에서의 전체 흐름 검증 (예: 컨테이너·VM에서 핵심 시나리오)
+        - 부하 테스트: 동시 N개 요청 처리
+        - 보안 검토: 권한 격리·민감 데이터 보호 검증
+    validations:
+      required: false
+
+  # ─────────────────────────────────────────────────
+  # 8. 우선순위/일정
+  # ─────────────────────────────────────────────────
+  - type: dropdown
+    id: priority
+    attributes:
+      label: "12. 우선순위"
+      options:
+        - "P0 (즉시, 인시던트 대응)"
+        - "P1 (이번 스프린트)"
+        - "P2 (다음 스프린트)"
+        - "P3 (백로그)"
+      default: 2
+    validations:
+      required: true
+
+  - type: input
+    id: deadline
+    attributes:
+      label: "13. 마감 기한"
+      description: "특정 날짜가 있다면 YYYY-MM-DD 형식으로"
+      placeholder: "2026-05-15"
+
+  # ─────────────────────────────────────────────────
+  # 9. 사람 리뷰어
+  # ─────────────────────────────────────────────────
+  - type: input
+    id: reviewers
+    attributes:
+      label: "14. 휴먼 리뷰어"
+      description: |
+        Agent 작업 결과를 검토할 사람을 지정하세요.
+        위험도 High는 2명 이상 필수입니다.
+        지정된 리뷰어는 이슈 댓글에 `/approve` 또는 `/lgtm` 을 남겨 승인합니다.
+      placeholder: "@user1, @user2"
+    validations:
+      required: true
+
+  # ─────────────────────────────────────────────────
+  # 10. 추가 컨텍스트
+  # ─────────────────────────────────────────────────
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: "15. 추가 컨텍스트"
+      description: |
+        위 항목에 들어가지 않는 정보 (스크린샷, 로그, 설계 문서 링크 등)
+    validations:
+      required: false
+
+  # ─────────────────────────────────────────────────
+  # 체크리스트
+  # ─────────────────────────────────────────────────
+  - type: checkboxes
+    id: pre-submit-checklist
+    attributes:
+      label: "제출 전 확인"
+      options:
+        - label: "민감정보(시크릿, 크레덴셜, 고객 PII)를 포함하지 않았다"
+          required: true
+        - label: "위험도(blast radius)를 정확히 평가했다"
+          required: true
+        - label: "완료 기준(acceptance criteria)이 측정 가능하다"
+          required: true
+        - label: "산출물 목록이 파일 경로 단위로 구체적이다"
+          required: true
+        - label: "위험도 High인 경우 리뷰어 2명 이상 지정했다"
+          required: false
+        - label: "위험도 High인 경우 `needs-human-lead` 라벨을 이슈에 추가했다"
+          required: false
