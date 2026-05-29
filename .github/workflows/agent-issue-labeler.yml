@@ -1,0 +1,106 @@
+name: agent-issue-labeler
+
+# 이슈 폼 드롭다운 선택값을 파싱해 라벨을 자동 부여한다.
+# 트리거: 이슈 생성 또는 본문 수정
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  issues: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Apply labels from issue form
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const body = context.payload.issue.body ?? '';
+            const issueNumber = context.payload.issue.number;
+            const labelsToAdd = [];
+
+            // 드롭다운 값 → 라벨 매핑 함수
+            // GitHub Issue Form은 선택값을 "### 섹션제목\n\n값\n" 형식으로 렌더링한다.
+            function extract(sectionLabel) {
+              const re = new RegExp(
+                `###\\s*${sectionLabel}[^\\n]*\\n+([^\\n#]+)`,
+                'i'
+              );
+              const m = body.match(re);
+              return m ? m[1].trim() : null;
+            }
+
+            // 1. 작업 유형
+            const taskType = extract('1\\. 작업 유형');
+            const typeMap = {
+              'feature':       'type/feature',
+              'refactor':      'type/refactor',
+              'bugfix':        'type/bugfix',
+              'test':          'type/test',
+              'docs':          'type/docs',
+              'infra':         'type/infra',
+              'investigation': 'type/investigation',
+            };
+            for (const [key, label] of Object.entries(typeMap)) {
+              if (taskType && taskType.includes(key)) {
+                labelsToAdd.push(label);
+                break;
+              }
+            }
+
+            // 2. 위험도
+            const risk = extract('2\\. 위험도');
+            if (risk) {
+              if (risk.startsWith('Low'))    labelsToAdd.push('risk/low');
+              if (risk.startsWith('Medium')) labelsToAdd.push('risk/medium');
+              if (risk.startsWith('High')) {
+                labelsToAdd.push('risk/high');
+                labelsToAdd.push('needs-human-lead');
+              }
+            }
+
+            // 3. 도메인 — 드롭다운 값의 첫 단어(슬러그)로 정확 매칭
+            const domain = extract('3\\. 도메인 영역');
+            const slug = (domain || '').trim().split(/[\s(]/)[0].toLowerCase();
+            const domainMap = {
+              'api':           'domain/api',
+              'control-plane': 'domain/control-plane',
+              'data-plane':    'domain/data-plane',
+              'storage':       'domain/storage',
+              'auth':          'domain/auth',
+              'integration':   'domain/integration',
+              'observability': 'domain/observability',
+              'infra':         'domain/infra',
+              'sdk-cli':       'domain/sdk-cli',
+              'docs':          'domain/docs',
+            };
+            if (domainMap[slug]) {
+              labelsToAdd.push(domainMap[slug]);
+            }
+
+            // 4. 우선순위
+            const priority = extract('12\\. 우선순위');
+            if (priority) {
+              if (priority.startsWith('P0')) labelsToAdd.push('priority/p0');
+              if (priority.startsWith('P1')) labelsToAdd.push('priority/p1');
+              if (priority.startsWith('P2')) labelsToAdd.push('priority/p2');
+              if (priority.startsWith('P3')) labelsToAdd.push('priority/p3');
+            }
+
+            if (labelsToAdd.length === 0) {
+              console.log('파싱된 라벨 없음. 이슈 폼 형식을 확인하세요.');
+              return;
+            }
+
+            console.log('부여할 라벨:', labelsToAdd.join(', '));
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              issue_number: issueNumber,
+              labels: labelsToAdd,
+            });
