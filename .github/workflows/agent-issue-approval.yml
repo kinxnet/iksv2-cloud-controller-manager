@@ -1,0 +1,155 @@
+name: agent-issue-approval
+
+# 이슈 댓글 기반 다중 승인 게이트.
+# /approve 또는 /lgtm 댓글이 위험도 임계값(Low/Medium=1, High=2)을 만족하면
+# ready-for-agent 라벨을 자동 부여하고, 회수 시 자동 제거한다.
+# 단 agent-wip 라벨이 이미 있으면 작업 중 게이트 회수는 막고 경고만 남긴다.
+# 승인자 검증: 봇이 아닌 댓글이면 인정. 레포가 private + outside collaborator=0이므로 댓글 작성자는 이미 신뢰 그룹.
+# 레포 visibility가 public으로 바뀌거나 outside collaborator가 추가되면 멤버십 검증을 재도입해야 함.
+
+on:
+  issue_comment:
+    types: [created, deleted, edited]
+
+permissions:
+  issues: write
+
+# 같은 이슈에 동시 다발성 댓글이 들어오면 마지막 이벤트 기준으로만 한 번 정상 종료한다.
+# 모든 라벨/댓글 작업이 멱등이라 cancel-in-progress 가 안전하다.
+concurrency:
+  group: agent-issue-approval-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  approval-gate:
+    runs-on: ubuntu-latest
+    # PR 코멘트는 issue_comment 이벤트에도 묶이므로 여기서 한 번 더 거름.
+    # 봇이 작성한 댓글(자기 진행 댓글) 트리거는 잡 시작 전에 차단해 Actions 분 절감.
+    if: ${{ github.event.issue.pull_request == null && github.event.comment.user.type != 'Bot' }}
+    steps:
+      - name: Evaluate multi-approval gate
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.issue.number;
+            const eventAction = context.payload.action; // created | deleted | edited
+            const comment = context.payload.comment;
+
+            // (1) PR 댓글 이중 방어 (워크플로우 if 조건과 중복 방어)
+            if (context.payload.issue.pull_request) return;
+
+            // (2) 승인 명령 정규식
+            const approveRe = /^\s*\/(approve|lgtm)\b/i;
+
+            // (3) 봇 차단 전용 헬퍼 (멤버십 검증 제거 — private repo + outside collaborator=0 전제)
+            const isApprovalAuthor = (c) =>
+              c.user?.type !== 'Bot' &&
+              c.user?.login !== 'github-actions[bot]';
+
+            // (4) 이슈 라벨 조회 (재집계 가드 + (7) 분기 공용)
+            const issueData = await github.rest.issues.get({ owner, repo, issue_number });
+            const labels = issueData.data.labels.map(l => l.name);
+            const hasReady = labels.includes('ready-for-agent');
+
+            // (5) 이벤트 분기: created/edited 이벤트에서 봇/비명령 댓글 처리
+            let skipCommandParse = false;
+            if (eventAction === 'created' || eventAction === 'edited') {
+              const isBot =
+                comment.user?.type === 'Bot' ||
+                comment.user?.login === 'github-actions[bot]';
+              if (isBot) {
+                skipCommandParse = true;
+              } else {
+                const firstLine = (comment.body || '').split('\n')[0];
+                if (approveRe.test(firstLine)) {
+                  // 명령 댓글: 봇 가드는 잡 레벨 if 조건 및 isBot 분기에서 이미 처리됨
+                } else {
+                  // 명령 아닌 일반 댓글
+                  // - edited && hasReady: 라벨 회수 가능성 있으므로 재집계 진행
+                  // - 그 외: early return
+                  if (!(eventAction === 'edited' && hasReady)) {
+                    return;
+                  }
+                  skipCommandParse = true; // 재집계만 진행, 신규 진행 댓글 생성 차단
+                }
+              }
+            }
+            // deleted: 항상 재계산 (승인 회수 가능성)
+
+            // (6) 전체 댓글 재조회 + 고유 승인자 산출
+            const allComments = await github.paginate(
+              github.rest.issues.listComments,
+              { owner, repo, issue_number, per_page: 100 }
+            );
+            const approverSet = new Set();
+            for (const c of allComments) {
+              if (!isApprovalAuthor(c)) continue;
+              core.info(`comment ${c.user.login}`);  // 디버그(승인 회귀 발생 시 확인)
+              const firstLine = (c.body || '').split('\n')[0];
+              if (!approveRe.test(firstLine)) continue;
+              approverSet.add(c.user.login);
+            }
+            const approvalCount = approverSet.size;
+
+            // (7) 위험도 임계값 결정
+            const riskHigh = labels.includes('risk/high');
+            const threshold = riskHigh ? 2 : 1; // Low=1, Medium=1, High=2
+
+            // (8) 현재 라벨 상태
+            const hasWip = labels.includes('agent-wip');
+
+            core.info(`승인자: ${[...approverSet].join(', ')} (${approvalCount}/${threshold}), hasReady=${hasReady}, hasWip=${hasWip}`);
+
+            // (9) 상태 전이
+            if (approvalCount >= threshold) {
+              // 임계값 도달
+              if (!hasReady) {
+                await github.rest.issues.addLabels({
+                  owner, repo, issue_number,
+                  labels: ['ready-for-agent'],
+                });
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number,
+                  body: [
+                    `✅ 승인 충족 (${approvalCount}/${threshold}) — \`ready-for-agent\` 라벨을 부여했습니다.`,
+                    `승인자: ${[...approverSet].map(u => '@' + u).join(', ')}`,
+                  ].join('\n'),
+                });
+              }
+              // hasReady === true 면 멱등 — 댓글/라벨 둘 다 noop
+            } else {
+              // 임계값 미달
+              if (hasReady) {
+                if (hasWip) {
+                  // agent-wip 보호 경고
+                  await github.rest.issues.createComment({
+                    owner, repo, issue_number,
+                    body: [
+                      `⚠️ 승인이 ${approvalCount}/${threshold}로 떨어졌으나 \`agent-wip\` 라벨이 있어 게이트를 유지합니다.`,
+                      `작업 중 회수가 필요하면 \`agent-wip\` 라벨을 먼저 제거하세요.`,
+                    ].join('\n'),
+                  });
+                } else {
+                  // 일반 회수
+                  await github.rest.issues.removeLabel({
+                    owner, repo, issue_number,
+                    name: 'ready-for-agent',
+                  });
+                  await github.rest.issues.createComment({
+                    owner, repo, issue_number,
+                    body: `⚠️ 승인 회수 — 현재 ${approvalCount}/${threshold}. \`ready-for-agent\` 라벨을 제거했습니다.`,
+                  });
+                }
+              } else {
+                // 라벨 없고 임계값 미달 — created 이벤트에서 진행 댓글만 남김
+                // (deleted/edited 재계산에서는 라벨 변동 없으면 댓글 스팸 방지를 위해 noop)
+                if (eventAction === 'created' && !skipCommandParse) {
+                  await github.rest.issues.createComment({
+                    owner, repo, issue_number,
+                    body: `✅ 승인 ${approvalCount}/${threshold} — 추가 ${threshold - approvalCount}명 필요`,
+                  });
+                }
+              }
+            }
