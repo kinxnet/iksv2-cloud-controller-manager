@@ -324,7 +324,7 @@ func (lbaas *LBaasV2) EnsureLoadBalancer(ctx context.Context, clusterName string
 	klog.V(4).Infof("EnsureLoadBalancer(%s, %s)", clusterName, serviceName)
 
 	backendProtocol := getStringFromServiceAnnotation(apiService, ServiceAnnotationBackendProtocol, "")
-	backendProtocol = strings.ToLower(backendProtocol)
+	backendProtocol = normalizeBackendProtocol(backendProtocol)
 	if backendProtocol != "" && !isBackendProtocol(backendProtocol) {
 		return nil, fmt.Errorf("%q is an unsupported backend protocol", backendProtocol)
 	}
@@ -898,8 +898,18 @@ func waitLoadbalancerDeleted(client *gophercloud.ServiceClient, loadbalancerID s
 	return err
 }
 
+// normalizeBackendProtocol is the single normalization point for the
+// backend-protocol annotation value. Lower-casing here keeps validation
+// (isBackendProtocol), protocol conversion (getListenerProtocol /
+// getPoolProtocol), and the existing-listener comparison consistent so that
+// upper- or mixed-case annotation values (e.g. "HTTP", "Tcp") are handled the
+// same as their lower-case form.
+func normalizeBackendProtocol(protocol string) string {
+	return strings.ToLower(protocol)
+}
+
 func isBackendProtocol(protocol string) bool {
-	switch strings.ToLower(protocol) {
+	switch normalizeBackendProtocol(protocol) {
 	case backendProtocolTerminatedHttps, backendProtocolHttp, backendProtocolTcp:
 		return true
 	}

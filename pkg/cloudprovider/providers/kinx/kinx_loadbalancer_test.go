@@ -1,7 +1,6 @@
 package kinx
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/gophercloud/gophercloud/openstack/loadbalancer/v2/listeners"
@@ -85,9 +84,9 @@ func TestGetPoolProtocol(t *testing.T) {
 }
 
 // TestBackendProtocolNormalization is the core regression test for issue #13.
-// It simulates the annotation-read → strings.ToLower normalization →
-// getListenerProtocol / getPoolProtocol pipeline and asserts that upper- and
-// mixed-case annotation values no longer produce an empty protocol string.
+// It drives the annotation value through the production normalizeBackendProtocol
+// helper → getListenerProtocol / getPoolProtocol pipeline and asserts that upper-
+// and mixed-case annotation values no longer produce an empty protocol string.
 func TestBackendProtocolNormalization(t *testing.T) {
 	cases := []struct {
 		annotationValue    string
@@ -114,8 +113,10 @@ func TestBackendProtocolNormalization(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		// Simulate the normalization added in EnsureLoadBalancer.
-		normalized := strings.ToLower(tc.annotationValue)
+		// Exercise the SAME normalization helper that EnsureLoadBalancer applies
+		// to the annotation value, so that removing or weakening the production
+		// normalization (normalizeBackendProtocol) breaks this test.
+		normalized := normalizeBackendProtocol(tc.annotationValue)
 
 		gotListener := getListenerProtocol(normalized)
 		gotPool := getPoolProtocol(normalized)
