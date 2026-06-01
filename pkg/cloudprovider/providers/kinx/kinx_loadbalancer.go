@@ -324,6 +324,7 @@ func (lbaas *LBaasV2) EnsureLoadBalancer(ctx context.Context, clusterName string
 	klog.V(4).Infof("EnsureLoadBalancer(%s, %s)", clusterName, serviceName)
 
 	backendProtocol := getStringFromServiceAnnotation(apiService, ServiceAnnotationBackendProtocol, "")
+	backendProtocol = strings.ToLower(backendProtocol)
 	if backendProtocol != "" && !isBackendProtocol(backendProtocol) {
 		return nil, fmt.Errorf("%q is an unsupported backend protocol", backendProtocol)
 	}
